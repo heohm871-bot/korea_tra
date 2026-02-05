@@ -1,0 +1,16 @@
+node_modules/
+.firebase/
+.firebase/**
+.firebase-cache/
+.firebase-debug.log
+firebase-debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.env
+.env.*
+
+# build artifacts
+/dist/
+/build/
