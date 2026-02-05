@@ -2,21 +2,210 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>K-Local Vibe 기초 공사</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K-Spotlight</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* 대분류-중분류 탭 스타일 */
+        .category-group {
+            display: inline-flex;
+            flex-direction: column;
+            margin: 0 15px 15px 0;
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 12px;
+            min-width: 140px;
+        }
+        
+        .group-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .sub-tab {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 2px 0;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: #333;
+            transition: all 0.2s ease;
+        }
+        
+        .sub-tab:hover {
+            background: #f0f0f0;
+            border-color: #0071e3;
+        }
+        
+        .sub-tab.active {
+            background: #0071e3;
+            color: white;
+            border-color: #0071e3;
+        }
+        
+        .category-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+            overflow: visible;
+            padding-bottom: 0;
+            max-width: 100%;
+        }
+
+        .category-group {
+            flex: 0 0 auto;
+        }
+
+        .content-view {
+            min-width: 0;
+        }
+        
+        .filter-tab {
+            background: #0071e3;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+        
+        .filter-tab:hover {
+            background: #0056b3;
+        }
+        
+        .filter-tab.active {
+            background: #003d82;
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <link rel="stylesheet" href="style.css" />
+    
+    <!-- 스크립트 로드 순서: 라이브러리 -> 데이터 -> 앱 -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" defer></script>
+    <script src="data_places_final.js" defer></script>
+    <script src="app.js" defer></script>
+    <script src="course.js" defer></script>
 </head>
 <body>
-    <h1>K-Local Vibe Firebase 연결 테스트</h1>
-    <p>콘솔창(F12)을 확인하여 '익명 로그인 성공' 메시지를 확인하세요.</p>
-    <button onclick="runUpload()">데이터 업로드 테스트</button>
+    <div class="ad-layout">
+        <aside class="ad-side">AD SPACE</aside>
 
-    <script type="module">
-        import { initUser, uploadSampleData } from './firebase-config.js';
-        
-        // 유저 초기화 실행
-        initUser();
+        <div class="main-content">
+            <header class="header">
+                <h1 class="logo" id="main-title" data-i18n="title">K-Spotlight</h1>
+                <p id="sub-title" class="subtitle" data-i18n="subtitle">로컬 맛집·관광·특산품을 한 번에 큐레이션합니다.</p>
+                <div class="top-filters">
+                    <select id="provinceSelect">
+                        <option value="all">도 전체</option>
+                    </select>
+                    <select id="citySelect">
+                        <option value="all">시/군 전체</option>
+                    </select>
+                    <div style="position: relative; display: inline-flex; align-items: center;">
+                        <input id="searchInput" type="text" data-i18n="searchPlaceholder" placeholder="검색..." style="
+                            width: 220px; padding: 10px 34px 10px 12px; border: 1px solid #d2d2d7;
+                            border-radius: 10px; font-size: 14px; outline: none;
+                        "/>
+                        <button id="searchClear" type="button" aria-label="clear" style="
+                            position: absolute; right: 6px; width: 26px; height: 26px;
+                            border: none; border-radius: 8px; background: transparent; cursor: pointer;
+                            color: #6b7280; font-size: 16px; line-height: 1;
+                            display: none;
+                        ">×</button>
+                    </div>
+                    <button id="searchButton" type="button" style="
+                        background: #0071e3; color: white; border: none; padding: 10px 14px;
+                        border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 14px;
+                    ">🔍</button>
+                    <select id="langSelect">
+                        <option value="ko">한국어</option>
+                        <option value="en">English</option>
+                        <option value="jp">日本語</option>
+                        <option value="cn">简体中文</option>
+                        <option value="th">ไทย</option>
+                        <option value="ar">العربية</option>
+                        <option value="ru">Русский</option>
+                        <option value="fr">Français</option>
+                    </select>
+                    <div id="resultCount" style="margin-left: 12px; font-weight: 600; color: #1d1d1f; font-size: 14px; white-space: nowrap;"></div>
+                </div>
+            </header>
 
-        // 버튼 클릭 시 데이터 업로드 실행
-        window.runUpload = uploadSampleData;
-    </script>
+            <div class="app-body">
+                <aside class="sidebar-map">
+                    <div class="map-container">
+                        <div id="map" style="width: 100%; height: 550px; border-radius: 20px; z-index: 1;"></div>
+                    </div>
+                    <p class="map-hint">Click markers to explore locations!</p>
+                </aside>
+
+                <section class="content-view">
+                    <nav class="category-tabs">
+                        <button class="filter-tab active" data-category="all" data-i18n="all">전체</button>
+                        
+                        <!-- 음식/음료 -->
+                        <div class="category-group">
+                            <span class="group-label" data-i18n="groupFood">🍽️ 음식</span>
+                            <button class="sub-tab" data-category="restaurant" id="btn-restaurant" data-i18n="restaurant">맛집</button>
+                            <button class="sub-tab" data-category="cafe" id="btn-cafe" data-i18n="cafe">카페</button>
+                        </div>
+                        
+                        <!-- 숙박 -->
+                        <div class="category-group">
+                            <span class="group-label" data-i18n="groupStay">🏨 숙박</span>
+                            <button class="sub-tab" data-category="hotel" id="btn-hotel" data-i18n="hotel">호텔/리조트</button>
+                        </div>
+                        
+                        <!-- 관광/문화 -->
+                        <div class="category-group">
+                            <span class="group-label" data-i18n="groupTourism">🏛️ 관광</span>
+                            <button class="sub-tab" data-category="tourism" id="btn-tourism" data-i18n="tourism">관광지</button>
+                            <button class="sub-tab" data-category="drama" id="btn-drama" data-i18n="drama">드라마촬영지</button>
+                            <button class="sub-tab" data-category="activity" id="btn-activity" data-i18n="activity">액티비티</button>
+                        </div>
+                        
+                        <!-- 쇼핑 -->
+                        <div class="category-group">
+                            <span class="group-label" data-i18n="groupShopping">🛍️ 쇼핑</span>
+                            <button class="sub-tab" data-category="shop" id="btn-shop" data-i18n="shop">쇼핑</button>
+                        </div>
+                        
+                        <!-- 자연 -->
+                        <div class="category-group">
+                            <span class="group-label" data-i18n="groupNature">🌳 자연</span>
+                            <button class="sub-tab" data-category="nature" id="btn-nature" data-i18n="nature">자연</button>
+                            <button class="sub-tab" data-category="photo" id="btn-photo" data-i18n="photo">포토존</button>
+                        </div>
+                    </nav>
+                    <div id="contentGrid" class="bento-grid">
+                        <div id="loadingIndicator" style="text-align: center; padding: 40px;">
+                            <div style="font-size: 24px; margin-bottom: 10px;">🔄</div>
+                            <p>데이터 로딩 중...</p>
+                            <p style="font-size: 12px; color: #666;">초기 1,000개 장소를 불러옵니다</p>
+                            <p id="loadingProgress" style="font-size: 11px; color: #999; margin-top: 5px;">백그라운드 로딩 대기 중...</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <aside class="ad-side">AD SPACE</aside>
+    </div>
+
+    <aside id="coursePanel" aria-hidden="true"></aside>
 </body>
 </html>
