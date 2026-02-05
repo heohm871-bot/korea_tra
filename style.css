@@ -38,6 +38,18 @@ body {
     padding: 30px 0; 
     border-bottom: 1px solid var(--apple-border); 
 }
+.top-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+}
+.top-filters select,
+.top-filters button,
+#searchInput {
+    max-width: 100%;
+}
 .logo {
     font-size: 28px;
     font-weight: 700;
@@ -98,6 +110,56 @@ body {
     font-size: 12px;
     color: #666;
     margin-top: 12px;
+}
+.ui-hint {
+    margin: 10px 0 0;
+    font-size: 13px;
+    color: #6b6b70;
+    line-height: 1.55;
+    font-weight: 500;
+}
+.hint-block {
+    background: linear-gradient(180deg, #f0f7ff 0%, #eaf2ff 100%);
+    border: 1px solid rgba(0, 113, 227, 0.25);
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 20px rgba(0, 113, 227, 0.12);
+}
+.hint-block::before {
+    content: '✓';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+    border-radius: 6px;
+    background: var(--apple-blue);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    vertical-align: text-top;
+}
+.category-hint::before {
+    background: #0ea5e9;
+}
+.category-hint[data-category="restaurant"]::before { background: #f97316; }
+.category-hint[data-category="cafe"]::before { background: #a16207; }
+.category-hint[data-category="hotel"]::before { background: #06b6d4; }
+.category-hint[data-category="tourism"]::before { background: #22c55e; }
+.category-hint[data-category="drama"]::before { background: #8b5cf6; }
+.category-hint[data-category="activity"]::before { background: #ef4444; }
+.category-hint[data-category="shop"]::before { background: #ec4899; }
+.category-hint[data-category="nature"]::before { background: #10b981; }
+.category-hint[data-category="photo"]::before { background: #6366f1; }
+.footer-curation {
+    display: grid;
+    gap: 6px;
+    color: #4b5563;
+    margin-bottom: 12px;
+}
+.footer-curation p {
+    margin: 0;
 }
 
 /* 카테고리 탭 */
@@ -232,6 +294,13 @@ body {
     font-size: 13px;
     color: #6b6b70;
 }
+.footer-notes {
+    display: grid;
+    gap: 6px;
+    font-size: 13px;
+    color: #6b6b70;
+    line-height: 1.5;
+}
 
 /* 정책/소개 페이지 */
 .page-wrap {
@@ -292,4 +361,86 @@ body {
 @media (max-width: 1100px) {
     .ad-layout { grid-template-columns: 1fr; }
     .ad-side { display: none; }
+}
+
+@media (max-width: 1024px) {
+    .main-content {
+        padding: 0 24px;
+    }
+    .app-body {
+        grid-template-columns: 1fr;
+        gap: 18px;
+    }
+    .sidebar-map {
+        position: static;
+        min-height: auto !important;
+        padding: 18px;
+    }
+    .map-container {
+        height: 420px !important;
+    }
+    .category-tabs {
+        overflow-x: auto;
+        padding-bottom: 6px;
+    }
+}
+
+@media (max-width: 640px) {
+    .main-content {
+        padding: 0 16px;
+    }
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .logo {
+        font-size: 24px;
+        white-space: normal;
+    }
+    .subtitle {
+        font-size: 13px;
+        line-height: 1.4;
+    }
+    .ui-hint {
+        font-size: 12px;
+        line-height: 1.5;
+        margin-top: 8px;
+    }
+    .hint-block {
+        padding: 10px 12px;
+    }
+    .top-filters {
+        justify-content: flex-start;
+        width: 100%;
+    }
+    .top-filters select,
+    #searchInput,
+    #searchButton,
+    #langSelect {
+        width: 100% !important;
+        box-sizing: border-box;
+    }
+    #searchInput {
+        width: 100% !important;
+    }
+    #resultCount {
+        margin-left: 0 !important;
+        width: 100%;
+    }
+    .map-container {
+        height: 320px !important;
+    }
+    .bento-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    .card-img {
+        height: 180px;
+    }
+    .footer-brand,
+    .footer-links,
+    .footer-meta {
+        gap: 10px;
+    }
 }

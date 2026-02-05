@@ -1412,15 +1412,40 @@ function setupEventListeners() {
     });
     
     // Category tabs
+    const categoryHintEl = document.getElementById('categoryHint');
+    const categoryHintKeyMap = {
+        restaurant: 'categoryHintRestaurant',
+        cafe: 'categoryHintCafe',
+        tourism: 'categoryHintTourism',
+        hotel: 'categoryHintHotel',
+        drama: 'categoryHintDrama',
+        activity: 'categoryHintActivity',
+        shop: 'categoryHintShop',
+        nature: 'categoryHintNature',
+        photo: 'categoryHintPhoto'
+    };
+    const categoryHintDefaultText = '카테고리를 선택하면 해당 기준이 표시됩니다.';
+    const updateCategoryHint = (category) => {
+        if (!categoryHintEl) return;
+        const key = categoryHintKeyMap[category];
+        const translated = key ? translations[currentLang]?.[key] : null;
+        const fallback = translations[currentLang]?.categoryHintDefault || categoryHintDefaultText;
+        categoryHintEl.textContent = translated || fallback;
+        categoryHintEl.setAttribute('data-category', category || 'default');
+    };
+
     document.querySelectorAll('.filter-tab, .sub-tab').forEach(tab => {
         tab.addEventListener('click', function(e) {
             // 모든 탭에서 active 클래스 제거
             document.querySelectorAll('.filter-tab, .sub-tab').forEach(t => t.classList.remove('active'));
             e.target.classList.add('active');
             currentFilter = e.target.dataset.category;
+            updateCategoryHint(currentFilter);
             filterMarkers();
         });
     });
+    updateCategoryHint(currentFilter);
+    window.addEventListener('app:langChange', () => updateCategoryHint(currentFilter));
 
     // Search input
     const searchInput = document.getElementById('searchInput');
@@ -1739,7 +1764,7 @@ function createPopupContent(place) {
 const translations = {
     ko: {
         title: 'K-Spotlight',
-        subtitle: '로컬 맛집·관광·특산품을 한 번에 큐레이션합니다.',
+        subtitle: '여행 계획할 때 ‘어디부터 볼지’ 고민 줄이기—지역별로 한 번에 모아 보여드립니다.',
         groupFood: '🍽️ 음식',
         groupStay: '🏨 숙박',
         groupTourism: '🏛️ 관광',
@@ -1785,11 +1810,24 @@ const translations = {
         plannerEmpty: '플래너에 추가된 장소가 없습니다.',
         needMoreLocations: '경로를 생성하려면 최소 2개 이상의 장소가 필요합니다.',
         audioGuidePlaying: '오디오 가이드 재생 중...',
-        stampButton: '스탬프'
+        stampButton: '스탬프',
+        regionHint: '지역을 선택하면 해당 지역의 인기 카테고리를 먼저 보여드립니다.',
+        categoryHintDefault: '카테고리를 선택하면 해당 기준이 표시됩니다.',
+        categoryHintRestaurant: '맛집: 지역 대표성/정보 충실도를 우선해 선별했습니다(중복·정보 불충분 항목은 제외).',
+        categoryHintCafe: '카페: 지역 대표성/정보 충실도를 우선해 선별했습니다(중복·정보 불충분 항목은 제외).',
+        categoryHintTourism: '관광: 대표 포인트와 동선을 고려해 탐색하기 쉽게 구성했습니다.',
+        categoryHintHotel: '숙박: 위치/가격대/후기 정보를 기준으로 기본 정보를 정리했습니다.',
+        categoryHintDrama: '드라마촬영지: 대표 장면 및 동선을 고려해 정리했습니다.',
+        categoryHintActivity: '액티비티: 체험 중심 장소를 우선 선별했습니다(중복·정보 불충분 항목은 제외).',
+        categoryHintShop: '쇼핑: 지역 특화 상품/시장 중심으로 묶었습니다.',
+        categoryHintNature: '자연: 이동 동선을 고려해 탐색하기 쉽게 구성했습니다.',
+        categoryHintPhoto: '포토존: 촬영 포인트를 기준으로 정리했습니다.',
+        footerCurationLine1: 'K-Spotlight는 공개 정보/제보를 바탕으로 중복·카테고리·기본 정보를 확인해 반영합니다.',
+        footerCurationLine2: '수정·삭제 요청은 메일로 접수되며 확인 후 순차 반영됩니다.'
     },
     en: {
         title: 'K-Spotlight',
-        subtitle: 'Curated local eats, spots, and specialties — all in one place.',
+        subtitle: 'Plan your trip with less guesswork — see each region\'s highlights in one place.',
         groupFood: '🍽️ Food',
         groupStay: '🏨 Stay',
         groupTourism: '🏛️ Tourism',
@@ -1850,11 +1888,24 @@ const translations = {
         plannerEmpty: 'No places in your planner.',
         needMoreLocations: 'You need at least 2 places to create a route.',
         audioGuidePlaying: 'Playing audio guide...',
-        stampButton: 'Stamps'
+        stampButton: 'Stamps',
+        regionHint: 'Select a region to see its most popular categories first.',
+        categoryHintDefault: 'Select a category to see its criteria.',
+        categoryHintRestaurant: 'Restaurants: Selected for local relevance and information completeness (duplicates/insufficient info removed).',
+        categoryHintCafe: 'Cafes: Selected for local relevance and information completeness (duplicates/insufficient info removed).',
+        categoryHintTourism: 'Tourism: Organized for easy browsing considering key spots and routes.',
+        categoryHintHotel: 'Stay: Organized using location, price range, and review info.',
+        categoryHintDrama: 'Drama locations: Organized by notable scenes and routes.',
+        categoryHintActivity: 'Activities: Prioritized experience-based spots (duplicates/insufficient info removed).',
+        categoryHintShop: 'Shopping: Grouped around local specialties and markets.',
+        categoryHintNature: 'Nature: Organized for easy exploration based on routes.',
+        categoryHintPhoto: 'Photo zones: Organized around key photo spots.',
+        footerCurationLine1: 'K-Spotlight uses public info and tips after checking duplicates, categories, and basics.',
+        footerCurationLine2: 'Edit/removal requests are handled by email after verification.'
     },
     jp: {
         title: 'K-Spotlight',
-        subtitle: 'ローカルのグルメ・スポット・特産品をまとめてキュレーション。',
+        subtitle: '旅行計画の「どこから見るか」を減らして、地域別にまとめて表示します。',
         groupFood: '🍽️ 食',
         groupStay: '🏨 宿泊',
         groupTourism: '🏛️ 観光',
@@ -1904,11 +1955,24 @@ const translations = {
         plannerEmpty: 'プランナーに場所がありません。',
         needMoreLocations: 'ルート作成には2か所以上必要です。',
         audioGuidePlaying: 'オーディオガイド再生中...',
-        stampButton: 'スタンプ'
+        stampButton: 'スタンプ',
+        regionHint: '地域を選ぶと、その地域の人気カテゴリーを先に表示します。',
+        categoryHintDefault: 'カテゴリを選ぶと基準が表示されます。',
+        categoryHintRestaurant: 'レストラン：地域性と情報の充実度を重視して選定しました（重複・情報不足は除外）。',
+        categoryHintCafe: 'カフェ：地域性と情報の充実度を重視して選定しました（重複・情報不足は除外）。',
+        categoryHintTourism: '観光：主要スポットと動線を考慮して見やすく整理しました。',
+        categoryHintHotel: '宿泊：立地・価格帯・レビュー情報を基準に整理しました。',
+        categoryHintDrama: 'ドラマロケ地：代表シーンと動線を考慮して整理しました。',
+        categoryHintActivity: 'アクティビティ：体験型スポットを優先して選定しました（重複・情報不足は除外）。',
+        categoryHintShop: 'ショッピング：地域特化の店舗や市場を中心にまとめました。',
+        categoryHintNature: '自然：移動動線を考慮して見やすく整理しました。',
+        categoryHintPhoto: 'フォトゾーン：撮影ポイントを基準に整理しました。',
+        footerCurationLine1: 'K-Spotlightは公開情報/提供情報を基に、重複・カテゴリ・基本情報を確認して反映します。',
+        footerCurationLine2: '修正・削除はメールで受付し、確認後に順次反映します。'
     },
     cn: {
         title: 'K-Spotlight',
-        subtitle: '精选本地美食、景点与特产，一站式发现。',
+        subtitle: '旅行规划不再纠结从哪里看起——按地区一次性汇总展示。',
         groupFood: '🍽️ 美食',
         groupStay: '🏨 住宿',
         groupTourism: '🏛️ 观光',
@@ -1958,11 +2022,24 @@ const translations = {
         plannerEmpty: '计划中暂无地点。',
         needMoreLocations: '至少需要 2 个地点生成路线。',
         audioGuidePlaying: '正在播放语音导览...',
-        stampButton: '印章'
+        stampButton: '印章',
+        regionHint: '选择地区后，将优先显示该地区的热门分类。',
+        categoryHintDefault: '选择分类后会显示对应标准。',
+        categoryHintRestaurant: '美食：优先考虑地区代表性与信息完整度（去重并剔除信息不足）。',
+        categoryHintCafe: '咖啡：优先考虑地区代表性与信息完整度（去重并剔除信息不足）。',
+        categoryHintTourism: '观光：结合代表景点与动线，便于浏览。',
+        categoryHintHotel: '住宿：按位置/价位/评价信息整理。',
+        categoryHintDrama: '拍摄地：按代表场景与动线整理。',
+        categoryHintActivity: '活动：优先体验类场所（去重并剔除信息不足）。',
+        categoryHintShop: '购物：围绕本地特产与市场进行归类。',
+        categoryHintNature: '自然：结合动线整理，便于探索。',
+        categoryHintPhoto: '拍照区：以主要拍摄点为标准整理。',
+        footerCurationLine1: 'K-Spotlight基于公开信息与投稿，核查重复、分类与基本信息后收录。',
+        footerCurationLine2: '修改/删除请通过邮件提交，确认后处理。'
     },
     th: {
         title: 'K-Spotlight',
-        subtitle: 'คัดสรรของกิน จุดเที่ยว และของขึ้นชื่อท้องถิ่นในที่เดียว',
+        subtitle: 'วางแผนเที่ยวได้ง่ายขึ้น—รวมไว้ให้ดูตามภูมิภาคในที่เดียว',
         groupFood: '🍽️ อาหาร',
         groupStay: '🏨 ที่พัก',
         groupTourism: '🏛️ ท่องเที่ยว',
@@ -2012,11 +2089,24 @@ const translations = {
         plannerEmpty: 'ยังไม่มีสถานที่ในแผน',
         needMoreLocations: 'ต้องมีอย่างน้อย 2 สถานที่เพื่อสร้างเส้นทาง',
         audioGuidePlaying: 'กำลังเล่นไกด์เสียง...',
-        stampButton: 'แสตมป์'
+        stampButton: 'แสตมป์',
+        regionHint: 'เลือกภูมิภาคแล้วจะแสดงหมวดที่นิยมของพื้นที่นั้นก่อน',
+        categoryHintDefault: 'เลือกหมวดแล้วจะแสดงเกณฑ์ของหมวดนั้น',
+        categoryHintRestaurant: 'ร้านอาหาร: คัดตามความเป็นตัวแทนพื้นที่และข้อมูลครบถ้วน (ตัดซ้ำ/ข้อมูลไม่ครบ)',
+        categoryHintCafe: 'คาเฟ่: คัดตามความเป็นตัวแทนพื้นที่และข้อมูลครบถ้วน (ตัดซ้ำ/ข้อมูลไม่ครบ)',
+        categoryHintTourism: 'ท่องเที่ยว: คัดจุดเด่นและเส้นทางให้ค้นหาได้ง่าย',
+        categoryHintHotel: 'ที่พัก: จัดเรียงโดยดูจากทำเล/ช่วงราคา/รีวิว',
+        categoryHintDrama: 'สถานที่ถ่ายละคร: จัดตามฉากเด่นและเส้นทาง',
+        categoryHintActivity: 'กิจกรรม: เน้นสถานที่เชิงประสบการณ์ (ตัดซ้ำ/ข้อมูลไม่ครบ)',
+        categoryHintShop: 'ช้อปปิ้ง: รวมตามสินค้าท้องถิ่นและตลาด',
+        categoryHintNature: 'ธรรมชาติ: จัดตามเส้นทางเพื่อให้ค้นหาได้ง่าย',
+        categoryHintPhoto: 'โซนถ่ายรูป: เน้นจุดถ่ายภาพหลัก',
+        footerCurationLine1: 'K-Spotlight ใช้ข้อมูลสาธารณะและคำแนะนำ พร้อมตรวจสอบความซ้ำ/หมวดหมู่/ข้อมูลพื้นฐานก่อนเผยแพร่',
+        footerCurationLine2: 'คำขอแก้ไข/ลบ รับทางอีเมลและดำเนินการหลังตรวจสอบ'
     },
     ar: {
         title: 'K-Spotlight',
-        subtitle: 'تجميعة مُنسّقة للأكل المحلي والأماكن وأشهر المنتجات في مكان واحد.',
+        subtitle: 'خطّط رحلتك بسهولة—نعرض أبرز الأماكن حسب المنطقة في مكان واحد.',
         groupFood: '🍽️ طعام',
         groupStay: '🏨 إقامة',
         groupTourism: '🏛️ سياحة',
@@ -2066,11 +2156,24 @@ const translations = {
         plannerEmpty: 'لا توجد أماكن في المخطط.',
         needMoreLocations: 'تحتاج إلى مكانين على الأقل لإنشاء مسار.',
         audioGuidePlaying: 'جارٍ تشغيل الدليل الصوتي...',
-        stampButton: 'الأختام'
+        stampButton: 'الأختام',
+        regionHint: 'اختر المنطقة لعرض الفئات الأكثر شيوعًا أولاً.',
+        categoryHintDefault: 'اختر فئة لعرض معاييرها.',
+        categoryHintRestaurant: 'مطاعم: تم اختيارها وفق الملاءمة المحلية واكتمال المعلومات (مع إزالة التكرار أو نقص المعلومات).',
+        categoryHintCafe: 'مقاهي: تم اختيارها وفق الملاءمة المحلية واكتمال المعلومات (مع إزالة التكرار أو نقص المعلومات).',
+        categoryHintTourism: 'سياحة: منظمة لتسهيل الاستكشاف وفق النقاط الأساسية والمسارات.',
+        categoryHintHotel: 'الإقامة: منظّمة وفق الموقع ونطاق السعر والمراجعات.',
+        categoryHintDrama: 'مواقع الدراما: منظمة حسب المشاهد البارزة ومسارات الوصول.',
+        categoryHintActivity: 'الأنشطة: أولوية لأماكن التجارب (مع إزالة التكرار أو نقص المعلومات).',
+        categoryHintShop: 'التسوق: مجمّعة حول المنتجات المحلية والأسواق.',
+        categoryHintNature: 'الطبيعة: منظمة لتسهيل الاستكشاف حسب المسارات.',
+        categoryHintPhoto: 'مناطق التصوير: منظمة حول نقاط التصوير الأساسية.',
+        footerCurationLine1: 'يعتمد K-Spotlight على المعلومات العامة والمساهمات بعد التحقق من التكرار والفئات والأساسيات.',
+        footerCurationLine2: 'طلبات التعديل/الحذف عبر البريد الإلكتروني بعد التحقق.'
     },
     fr: {
         title: 'K-Spotlight',
-        subtitle: 'Une sélection de bonnes adresses, lieux et spécialités locales — au même endroit.',
+        subtitle: 'Moins d’hésitation pour planifier le voyage — tout est regroupé par région en un seul endroit.',
         groupFood: '🍽️ Cuisine',
         groupStay: '🏨 Hébergement',
         groupTourism: '🏛️ Tourisme',
@@ -2120,11 +2223,24 @@ const translations = {
         removedFromPlanner: 'Retiré du plan',
         plannerEmpty: 'Aucun lieu dans votre plan.',
         needMoreLocations: 'Ajoutez au moins 2 lieux pour créer un itinéraire.',
-        audioGuidePlaying: 'Lecture du guide audio...'
+        audioGuidePlaying: 'Lecture du guide audio...',
+        regionHint: 'Choisissez une région pour voir d’abord ses catégories les plus populaires.',
+        categoryHintDefault: 'Choisissez une catégorie pour afficher ses critères.',
+        categoryHintRestaurant: 'Restaurants : sélection selon la pertinence locale et la complétude des infos (doublons/infos insuffisantes exclus).',
+        categoryHintCafe: 'Cafés : sélection selon la pertinence locale et la complétude des infos (doublons/infos insuffisantes exclus).',
+        categoryHintTourism: 'Tourisme : organisé pour faciliter l’exploration selon les points clés et itinéraires.',
+        categoryHintHotel: 'Hébergement : organisé selon l’emplacement, la gamme de prix et les avis.',
+        categoryHintDrama: 'Lieux de tournage : organisés par scènes marquantes et itinéraires.',
+        categoryHintActivity: 'Activités : priorité aux expériences (doublons/infos insuffisantes exclus).',
+        categoryHintShop: 'Shopping : regroupé autour des spécialités locales et des marchés.',
+        categoryHintNature: 'Nature : organisée selon les itinéraires pour explorer facilement.',
+        categoryHintPhoto: 'Zones photo : organisées autour des spots principaux.',
+        footerCurationLine1: 'K-Spotlight s’appuie sur des infos publiques et des signalements après vérification des doublons, catégories et infos de base.',
+        footerCurationLine2: 'Modif/suppression par e-mail, après vérification.'
     },
     ru: {
         title: 'K-Spotlight',
-        subtitle: 'Подборка местной еды, локаций и популярных региональных специалитетов.',
+        subtitle: 'Меньше сомнений при планировании поездки — всё собрано по регионам в одном месте.',
         groupFood: '🍽️ Еда',
         groupStay: '🏨 Проживание',
         groupTourism: '🏛️ Туризм',
@@ -2174,7 +2290,20 @@ const translations = {
         btnShop: 'Шоппинг',
         btnNature: 'Природа',
         btnPhoto: 'Фотозона',
-        stampButton: 'Штампы'
+        stampButton: 'Штампы',
+        regionHint: 'Выберите регион, чтобы сначала увидеть его популярные категории.',
+        categoryHintDefault: 'Выберите категорию, чтобы увидеть её критерии.',
+        categoryHintRestaurant: 'Рестораны: отбор по локальной релевантности и полноте данных (дубликаты/недостаточные данные исключены).',
+        categoryHintCafe: 'Кафе: отбор по локальной релевантности и полноте данных (дубликаты/недостаточные данные исключены).',
+        categoryHintTourism: 'Туризм: сгруппировано для удобного просмотра с учётом ключевых точек и маршрутов.',
+        categoryHintHotel: 'Проживание: упорядочено по локации, цене и отзывам.',
+        categoryHintDrama: 'Места съёмок: организовано по ключевым сценам и маршрутам.',
+        categoryHintActivity: 'Активности: приоритет — опыт и впечатления (дубликаты/недостаточные данные исключены).',
+        categoryHintShop: 'Шоппинг: сгруппировано вокруг местных специалитетов и рынков.',
+        categoryHintNature: 'Природа: организовано по маршрутам для удобного просмотра.',
+        categoryHintPhoto: 'Фотозоны: организовано вокруг ключевых фототочок.',
+        footerCurationLine1: 'K-Spotlight использует публичные источники и сообщения, проверяя дубли, категории и базовые данные.',
+        footerCurationLine2: 'Запросы на исправление/удаление — по email, после проверки.'
     }
 };
 

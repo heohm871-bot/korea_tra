@@ -109,7 +109,7 @@
         <div class="main-content">
             <header class="header">
                 <h1 class="logo" id="main-title" data-i18n="title">K-Spotlight</h1>
-                <p id="sub-title" class="subtitle" data-i18n="subtitle">로컬 맛집·관광·특산품을 한 번에 큐레이션합니다.</p>
+                <p id="sub-title" class="subtitle" data-i18n="subtitle">여행 계획할 때 ‘어디부터 볼지’ 고민 줄이기—지역별로 한 번에 모아 보여드립니다.</p>
                 <div class="top-filters">
                     <select id="provinceSelect">
                         <option value="all">도 전체</option>
@@ -149,6 +149,7 @@
 
             <div class="app-body">
                 <aside class="sidebar-map">
+                    <p class="ui-hint hint-block" id="regionHint" data-i18n="regionHint">지역을 선택하면 해당 지역의 인기 카테고리를 먼저 보여드립니다.</p>
                     <div class="map-container">
                         <div id="map" style="width: 100%; height: 550px; border-radius: 20px; z-index: 1;"></div>
                     </div>
@@ -156,6 +157,7 @@
                 </aside>
 
                 <section class="content-view">
+                    <p class="ui-hint hint-block category-hint" id="categoryHint" data-i18n="categoryHintDefault">카테고리를 선택하면 해당 기준이 표시됩니다.</p>
                     <nav class="category-tabs">
                         <button class="filter-tab active" data-category="all" data-i18n="all">전체</button>
                         
@@ -205,9 +207,17 @@
             </div>
 
             <footer class="site-footer">
+                <div class="footer-curation hint-block">
+                    <p data-i18n="footerCurationLine1">K-Spotlight는 공개된 정보와 제보를 바탕으로, 중복/카테고리/기본 정보 충실도를 점검해 반영합니다.</p>
+                    <p data-i18n="footerCurationLine2">수정·삭제 요청은 문의 메일로 접수되며, 확인 후 순차 반영됩니다.</p>
+                </div>
                 <div class="footer-brand">
                     <strong>K-Spotlight</strong>
-                    <span>로컬 맛집·관광·특산품을 한 번에 큐레이션합니다.</span>
+                    <span>여행 계획할 때 ‘어디부터 볼지’ 고민 줄이기—지역별로 한 번에 모아 보여드립니다.</span>
+                </div>
+                <div class="footer-notes">
+                    <span>K-Spotlight는 공개된 정보와 제보를 바탕으로, 중복/카테고리/기본 정보 충실도를 점검해 반영합니다.</span>
+                    <span>수정·삭제 요청은 문의 메일로 접수되며, 확인 후 순차 반영됩니다.</span>
                 </div>
                 <nav class="footer-links">
                     <a href="about.html">소개</a>
