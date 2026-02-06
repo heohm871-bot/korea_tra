@@ -99,6 +99,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" defer></script>
     <script src="data_places_final.js" defer></script>
+    <script src="firebase-runtime-config.js" defer></script>
+    <script type="module" src="firebase-feedback.js"></script>
     <script src="app.js" defer></script>
     <script src="course.js" defer></script>
 </head>
@@ -195,6 +197,7 @@
                             <button class="sub-tab" data-category="photo" id="btn-photo" data-i18n="photo">포토존</button>
                         </div>
                     </nav>
+                    <div id="rankingPanel" class="ranking-panel" aria-live="polite"></div>
                     <div id="contentGrid" class="bento-grid">
                         <div id="loadingIndicator" style="text-align: center; padding: 40px;">
                             <div style="font-size: 24px; margin-bottom: 10px;">🔄</div>

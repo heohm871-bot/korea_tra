@@ -18,8 +18,17 @@ let flaggedItems = [];
 let flaggedItemKeys = new Set();
 
 let lastRestaurantDetailId = null;
+let currentRankingPeriodDays = 0; // 0 = all time
 
 const CATEGORY_NORMALIZE_VERSION = 7;
+const PLACE_FEEDBACK_STORAGE_KEY = 'kspotlight.placeFeedback.v1';
+const PLACE_LIKED_STORAGE_KEY = 'kspotlight.placeFeedbackLiked.v1';
+const PLACE_SEARCH_STORAGE_KEY = 'kspotlight.placeSearch.v1';
+const PLACE_SEARCH_TERM_STORAGE_KEY = 'kspotlight.searchTerms.v1';
+const LOCAL_UID_STORAGE_KEY = 'kspotlight.localUid.v1';
+const COMMENTER_NAME_STORAGE_KEY = 'kspotlight.commenterName.v1';
+const PLACE_COMMENT_MAX_LENGTH = 200;
+const PLACE_COMMENT_VISIBLE_LIMIT = 20;
 
 function looksLikeRestaurant(place) {
     const title = String(place?.title ?? '').trim();
@@ -871,6 +880,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initMap();
     updatePlannerButton();
     ensureStampButton();
+    refreshPlaceRankings();
 });
 
 // 모든 리소스 로딩 완료 후 실행
@@ -1234,12 +1244,657 @@ function toOnclickArg(value) {
     return escapeHtmlAttr(JSON.stringify(value));
 }
 
+function highlightMatch(text, query) {
+    const raw = String(text ?? '');
+    const q = String(query ?? '').trim();
+    if (!q) return escapeHtmlAttr(raw);
+    const lower = raw.toLowerCase();
+    const qLower = q.toLowerCase();
+    let result = '';
+    let idx = 0;
+    let pos = lower.indexOf(qLower, idx);
+    while (pos !== -1) {
+        result += escapeHtmlAttr(raw.slice(idx, pos));
+        result += `<mark class="search-highlight">${escapeHtmlAttr(raw.slice(pos, pos + q.length))}</mark>`;
+        idx = pos + q.length;
+        pos = lower.indexOf(qLower, idx);
+    }
+    result += escapeHtmlAttr(raw.slice(idx));
+    return result;
+}
+
+function pulseSearchUI() {
+    const searchInput = document.getElementById('searchInput');
+    const contentGrid = document.getElementById('contentGrid');
+    if (searchInput) {
+        searchInput.classList.remove('search-pulse');
+        void searchInput.offsetWidth;
+        searchInput.classList.add('search-pulse');
+    }
+    if (contentGrid) {
+        contentGrid.classList.remove('search-bounce');
+        void contentGrid.offsetWidth;
+        contentGrid.classList.add('search-bounce');
+    }
+}
+
+function getPlaceKey(place) {
+    const key = String(place?.id ?? place?.title ?? '').trim();
+    return key || '';
+}
+
+function hashPlaceKey(value) {
+    const str = String(value ?? '');
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+}
+
+function buildPlaceFeedbackDomId(placeKey, scope = 'detail') {
+    const suffix = hashPlaceKey(placeKey || 'unknown');
+    return `place-feedback-${scope}-${suffix}`;
+}
+
+function isFeedbackBackendReady() {
+    return Boolean(window.feedbackBackend && window.feedbackBackend.ready);
+}
+
+function loadPlaceFeedbackStore() {
+    try {
+        const raw = localStorage.getItem(PLACE_FEEDBACK_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function savePlaceFeedbackStore(store) {
+    try {
+        localStorage.setItem(PLACE_FEEDBACK_STORAGE_KEY, JSON.stringify(store || {}));
+    } catch {
+        // ignore
+    }
+}
+
+function loadPlaceLikedStore() {
+    try {
+        const raw = localStorage.getItem(PLACE_LIKED_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function savePlaceLikedStore(store) {
+    try {
+        localStorage.setItem(PLACE_LIKED_STORAGE_KEY, JSON.stringify(store || {}));
+    } catch {
+        // ignore
+    }
+}
+
+function loadPlaceSearchStore() {
+    try {
+        const raw = localStorage.getItem(PLACE_SEARCH_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function savePlaceSearchStore(store) {
+    try {
+        localStorage.setItem(PLACE_SEARCH_STORAGE_KEY, JSON.stringify(store || {}));
+    } catch {
+        // ignore
+    }
+}
+
+function loadSearchTermStore() {
+    try {
+        const raw = localStorage.getItem(PLACE_SEARCH_TERM_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function saveSearchTermStore(store) {
+    try {
+        localStorage.setItem(PLACE_SEARCH_TERM_STORAGE_KEY, JSON.stringify(store || {}));
+    } catch {
+        // ignore
+    }
+}
+
+function getTodayKey(ts = Date.now()) {
+    try {
+        const d = new Date(ts);
+        return d.toISOString().slice(0, 10);
+    } catch {
+        return '';
+    }
+}
+
+function getRecentDayKeys(days) {
+    const count = Number(days || 0);
+    if (count <= 0) return [];
+    const keys = [];
+    for (let i = 0; i < count; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        keys.push(getTodayKey(d.getTime()));
+    }
+    return keys;
+}
+
+function sumByDayMap(byDay, days) {
+    const map = byDay && typeof byDay === 'object' ? byDay : {};
+    if (!days || days <= 0) {
+        return Object.values(map).reduce((acc, v) => acc + (Number(v) || 0), 0);
+    }
+    return getRecentDayKeys(days).reduce((acc, key) => acc + (Number(map[key]) || 0), 0);
+}
+
+function getLocalUid() {
+    try {
+        let uid = localStorage.getItem(LOCAL_UID_STORAGE_KEY);
+        if (!uid) {
+            uid = `local-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`;
+            localStorage.setItem(LOCAL_UID_STORAGE_KEY, uid);
+        }
+        return uid;
+    } catch {
+        return 'local-guest';
+    }
+}
+
+function getCommenterName() {
+    try {
+        return String(localStorage.getItem(COMMENTER_NAME_STORAGE_KEY) || '').trim();
+    } catch {
+        return '';
+    }
+}
+
+function setCommenterName(name) {
+    try {
+        localStorage.setItem(COMMENTER_NAME_STORAGE_KEY, String(name || '').trim());
+    } catch {
+        // ignore
+    }
+}
+
+function getPlaceFeedback(placeKey) {
+    const store = loadPlaceFeedbackStore();
+    const entry = store?.[placeKey];
+    if (!entry || typeof entry !== 'object') {
+        return { likes: 0, comments: [] };
+    }
+    const likes = Number(entry.likes) || 0;
+    const comments = Array.isArray(entry.comments) ? entry.comments : [];
+    return { likes, comments };
+}
+
+function setPlaceFeedback(placeKey, feedback) {
+    const store = loadPlaceFeedbackStore();
+    store[placeKey] = {
+        likes: Number(feedback?.likes) || 0,
+        comments: Array.isArray(feedback?.comments) ? feedback.comments : []
+    };
+    savePlaceFeedbackStore(store);
+}
+
+function isPlaceLiked(placeKey) {
+    const liked = loadPlaceLikedStore();
+    return Boolean(liked?.[placeKey]);
+}
+
+const localFeedbackProvider = {
+    ready: true,
+    uid: null,
+    async getSummary(placeKey) {
+        const feedback = getPlaceFeedback(placeKey);
+        return {
+            likes: Number(feedback.likes || 0),
+            comments: Array.isArray(feedback.comments) ? feedback.comments.length : 0
+        };
+    },
+    async getFeedback(placeKey) {
+        const feedback = getPlaceFeedback(placeKey);
+        return {
+            likes: Number(feedback.likes || 0),
+            comments: (feedback.comments || []).map((c) => ({
+                id: c?.id || '',
+                text: c?.text || '',
+                ts: c?.ts,
+                name: c?.name || '',
+                uid: c?.uid || null,
+                canDelete: c?.uid === getLocalUid()
+            })),
+            liked: isPlaceLiked(placeKey)
+        };
+    },
+    async toggleLike(placeKey) {
+        const key = String(placeKey ?? '').trim();
+        if (!key) return;
+
+        const likedStore = loadPlaceLikedStore();
+        const feedback = getPlaceFeedback(key);
+        const alreadyLiked = Boolean(likedStore?.[key]);
+
+        if (alreadyLiked) {
+            delete likedStore[key];
+            feedback.likes = Math.max(0, (feedback.likes || 0) - 1);
+        } else {
+            likedStore[key] = true;
+            feedback.likes = (feedback.likes || 0) + 1;
+        }
+
+        savePlaceLikedStore(likedStore);
+        setPlaceFeedback(key, feedback);
+    },
+    async addComment(placeKey, payload) {
+        const key = String(placeKey ?? '').trim();
+        if (!key) return;
+        const feedback = getPlaceFeedback(key);
+        const comments = Array.isArray(feedback.comments) ? feedback.comments : [];
+        const uid = getLocalUid();
+        const name = String(payload?.name || '').trim();
+        const safeName = name || (translations[currentLang]?.commenterAnonymous || '익명');
+        comments.push({
+            id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            text: String(payload?.text || '').trim(),
+            ts: Date.now(),
+            name: safeName,
+            uid
+        });
+        feedback.comments = comments;
+        setPlaceFeedback(key, feedback);
+    },
+    async deleteComment(placeKey, commentId) {
+        const key = String(placeKey ?? '').trim();
+        if (!key) return false;
+        const feedback = getPlaceFeedback(key);
+        const comments = Array.isArray(feedback.comments) ? feedback.comments : [];
+        const uid = getLocalUid();
+        const next = comments.filter((c) => !(c?.id === commentId && c?.uid === uid));
+        if (next.length === comments.length) return false;
+        feedback.comments = next;
+        setPlaceFeedback(key, feedback);
+        return true;
+    },
+    async reportComment() {
+        showToast(translations[currentLang]?.commentReportDone || '신고가 접수되었습니다.');
+    },
+    async trackSearch(term) {
+        const key = String(term ?? '').trim().toLowerCase();
+        if (!key) return;
+        const store = loadSearchTermStore();
+        const todayKey = getTodayKey();
+        const entry = store[key];
+        const next = typeof entry === 'number'
+            ? { total: Number(entry) || 0, byDay: {} }
+            : (entry && typeof entry === 'object' ? entry : { total: 0, byDay: {} });
+        next.total = (Number(next.total) || 0) + 1;
+        next.byDay = next.byDay && typeof next.byDay === 'object' ? next.byDay : {};
+        if (todayKey) {
+            next.byDay[todayKey] = (Number(next.byDay[todayKey]) || 0) + 1;
+        }
+        store[key] = next;
+        saveSearchTermStore(store);
+    },
+    async getRankings(days = 0) {
+        const feedbackStore = loadPlaceFeedbackStore();
+        const commentRanks = Object.entries(feedbackStore)
+            .map(([key, value]) => ({
+                placeKey: key,
+                count: Array.isArray(value?.comments)
+                    ? value.comments.filter((c) => {
+                        if (!days || days <= 0) return true;
+                        const ts = Number(c?.ts || 0);
+                        if (!ts) return false;
+                        return ts >= Date.now() - (days * 24 * 60 * 60 * 1000);
+                    }).length
+                    : 0
+            }))
+            .filter((item) => item.count > 0)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+
+        const searchStore = loadSearchTermStore();
+        const searchRanks = Object.entries(searchStore)
+            .map(([term, entry]) => {
+                if (typeof entry === 'number') {
+                    return { term, count: Number(entry) || 0 };
+                }
+                const total = Number(entry?.total) || 0;
+                const byDay = entry?.byDay || {};
+                const count = days && days > 0 ? sumByDayMap(byDay, days) : total;
+                return { term, count };
+            })
+            .filter((item) => item.count > 0)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+
+        return { topCommented: commentRanks, topSearched: searchRanks };
+    }
+};
+
+function getFeedbackProvider() {
+    if (isFeedbackBackendReady()) return window.feedbackBackend;
+    return localFeedbackProvider;
+}
+
+async function togglePlaceLike(placeKey, domId) {
+    const key = String(placeKey ?? '').trim();
+    if (!key) return;
+    const provider = getFeedbackProvider();
+    await provider.toggleLike(key);
+    updatePlaceFeedbackUI(key, domId);
+    updateCardFeedbackBadge(key, `card-feedback-${hashPlaceKey(key)}`);
+}
+
+async function submitPlaceComment(placeKey, domId) {
+    const key = String(placeKey ?? '').trim();
+    if (!key) return;
+    const input = document.getElementById(`${domId}-input`);
+    if (!input) return;
+    const nameInput = document.getElementById(`${domId}-name`);
+    const text = String(input.value ?? '').trim();
+    if (!text) {
+        showToast(translations[currentLang]?.commentEmpty || '댓글을 입력해 주세요.');
+        return;
+    }
+    if (text.length > PLACE_COMMENT_MAX_LENGTH) {
+        showToast(translations[currentLang]?.commentLimit || `댓글은 ${PLACE_COMMENT_MAX_LENGTH}자까지 가능합니다.`);
+        return;
+    }
+
+    const name = nameInput ? String(nameInput.value ?? '').trim() : '';
+    if (name) {
+        setCommenterName(name);
+    }
+    const provider = getFeedbackProvider();
+    await provider.addComment(key, { text, name });
+
+    input.value = '';
+    if (nameInput && name) {
+        nameInput.value = name;
+    }
+    updatePlaceFeedbackUI(key, domId);
+    updateCardFeedbackBadge(key, `card-feedback-${hashPlaceKey(key)}`);
+    refreshPlaceRankings();
+}
+
+function formatCommentTime(ts) {
+    try {
+        return new Date(ts).toLocaleString();
+    } catch {
+        return '';
+    }
+}
+
+function renderPlaceFeedbackSection(placeKey, domId) {
+    const likeLabel = translations[currentLang]?.like || '좋아요';
+    const commentsLabel = translations[currentLang]?.comments || '댓글';
+    const placeholder = translations[currentLang]?.commentPlaceholder || '여행 팁이나 경험을 남겨보세요';
+    const submitLabel = translations[currentLang]?.addComment || '댓글 남기기';
+    const nameLabel = translations[currentLang]?.commenterName || '닉네임';
+    const namePlaceholder = translations[currentLang]?.commenterPlaceholder || '닉네임(선택)';
+    const noteLocal = translations[currentLang]?.feedbackLocalNote || '이 댓글/좋아요는 현재 기기(LocalStorage)에만 저장됩니다.';
+    const noteCloud = translations[currentLang]?.feedbackCloudNote || '이 댓글/좋아요는 익명 로그인 후 서버에 저장됩니다.';
+    const note = isFeedbackBackendReady() ? noteCloud : noteLocal;
+    const savedName = getCommenterName();
+
+    return `
+        <div class="place-feedback" id="${domId}" data-place-key="${escapeHtmlAttr(placeKey)}">
+            <div class="place-feedback-header">
+                <div class="place-feedback-title">💬 <span data-i18n="comments">${commentsLabel}</span></div>
+                <div class="place-feedback-like">
+                    <button class="place-like-btn" id="${domId}-like-btn" type="button" onclick="togglePlaceLike(${toOnclickArg(placeKey)}, '${domId}')">
+                        <span class="like-icon">❤️</span>
+                        <span data-i18n="like">${likeLabel}</span>
+                    </button>
+                    <span class="place-like-count" id="${domId}-like-count">0</span>
+                </div>
+            </div>
+            <div class="place-feedback-list" id="${domId}-comments"></div>
+            <div class="place-feedback-form">
+                <div class="place-feedback-name-row">
+                    <label for="${domId}-name" data-i18n="commenterName">${escapeHtmlAttr(nameLabel)}</label>
+                    <input id="${domId}-name" data-i18n="commenterPlaceholder" placeholder="${escapeHtmlAttr(namePlaceholder)}" value="${escapeHtmlAttr(savedName)}" />
+                </div>
+                <textarea id="${domId}-input" data-i18n="commentPlaceholder" maxlength="${PLACE_COMMENT_MAX_LENGTH}" placeholder="${escapeHtmlAttr(placeholder)}"></textarea>
+                <button type="button" onclick="submitPlaceComment(${toOnclickArg(placeKey)}, '${domId}')">
+                    <span data-i18n="addComment">${submitLabel}</span>
+                </button>
+            </div>
+            <div class="place-feedback-note"><span data-i18n="feedbackLocalNote">${note}</span></div>
+        </div>
+    `;
+}
+
+async function updatePlaceFeedbackUI(placeKey, domId) {
+    const key = String(placeKey ?? '').trim();
+    if (!key) return;
+    const provider = getFeedbackProvider();
+    const feedback = await provider.getFeedback(key);
+    const liked = Boolean(feedback?.liked);
+
+    const likeBtn = document.getElementById(`${domId}-like-btn`);
+    const likeCount = document.getElementById(`${domId}-like-count`);
+    const listEl = document.getElementById(`${domId}-comments`);
+    const noteEl = document.querySelector(`#${domId} .place-feedback-note span`);
+
+    if (likeBtn) {
+        likeBtn.classList.toggle('is-liked', liked);
+    }
+    if (likeCount) {
+        likeCount.textContent = String(feedback.likes || 0);
+    }
+    if (noteEl) {
+        noteEl.textContent = isFeedbackBackendReady()
+            ? (translations[currentLang]?.feedbackCloudNote || '이 댓글/좋아요는 익명 로그인 후 서버에 저장됩니다.')
+            : (translations[currentLang]?.feedbackLocalNote || '이 댓글/좋아요는 현재 기기(LocalStorage)에만 저장됩니다.');
+    }
+
+    if (listEl) {
+        const comments = Array.isArray(feedback.comments) ? feedback.comments : [];
+        const display = comments.slice(-PLACE_COMMENT_VISIBLE_LIMIT);
+        if (display.length === 0) {
+            listEl.innerHTML = `<div class="place-feedback-empty">${translations[currentLang]?.noComments || '아직 댓글이 없어요. 첫 댓글을 남겨보세요!'}</div>`;
+        } else {
+            const deleteLabel = translations[currentLang]?.commentDelete || '삭제';
+            const reportLabel = translations[currentLang]?.commentReport || '신고';
+            const anonymousLabel = translations[currentLang]?.commenterAnonymous || '익명';
+            listEl.innerHTML = display.map((comment) => {
+                const safeText = escapeHtmlAttr(comment?.text ?? '');
+                const time = formatCommentTime(comment?.ts);
+                const name = escapeHtmlAttr(String(comment?.name || anonymousLabel));
+                const canDelete = Boolean(comment?.canDelete);
+                const commentId = escapeHtmlAttr(String(comment?.id || ''));
+                return `
+                    <div class="place-feedback-item">
+                        <div class="place-feedback-text">${safeText}</div>
+                        <div class="place-feedback-meta">
+                            <span class="place-feedback-name">${name}</span>
+                            <span class="place-feedback-time">${escapeHtmlAttr(time)}</span>
+                            <span class="place-feedback-actions">
+                                ${canDelete ? `<button type="button" onclick="deletePlaceComment(${toOnclickArg(key)}, '${domId}', '${commentId}')">${deleteLabel}</button>` : ''}
+                                <button type="button" onclick="reportPlaceComment(${toOnclickArg(key)}, '${domId}', '${commentId}')">${reportLabel}</button>
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+}
+
+async function deletePlaceComment(placeKey, domId, commentId) {
+    const key = String(placeKey ?? '').trim();
+    if (!key) return;
+    if (!commentId) return;
+    const confirmLabel = translations[currentLang]?.commentDeleteConfirm || '이 댓글을 삭제할까요?';
+    if (!window.confirm(confirmLabel)) return;
+    const provider = getFeedbackProvider();
+    const ok = await provider.deleteComment(key, commentId);
+    if (!ok) {
+        showToast(translations[currentLang]?.commentDeleteDenied || '삭제할 수 없습니다.');
+        return;
+    }
+    updatePlaceFeedbackUI(key, domId);
+    updateCardFeedbackBadge(key, `card-feedback-${hashPlaceKey(key)}`);
+    refreshPlaceRankings();
+}
+
+async function reportPlaceComment(placeKey, domId, commentId) {
+    const key = String(placeKey ?? '').trim();
+    if (!key) return;
+    if (!commentId) return;
+    const confirmLabel = translations[currentLang]?.commentReportConfirm || '이 댓글을 신고할까요?';
+    if (!window.confirm(confirmLabel)) return;
+    const provider = getFeedbackProvider();
+    await provider.reportComment(key, commentId);
+    showToast(translations[currentLang]?.commentReportDone || '신고가 접수되었습니다.');
+}
+
+function trackSearchTermHit() {
+    const q = String(searchQuery ?? '').trim();
+    if (!q) return;
+    const provider = getFeedbackProvider();
+    if (provider?.trackSearch) {
+        provider.trackSearch(q).then(() => refreshPlaceRankings()).catch(() => {});
+    }
+}
+
+async function refreshPlaceRankings() {
+    const panel = document.getElementById('rankingPanel');
+    if (!panel) return;
+    const provider = getFeedbackProvider();
+    const rankings = await provider.getRankings(currentRankingPeriodDays);
+    renderRankingPanel(rankings);
+}
+
+function getPlaceTitleByKey(placeKey) {
+    const place = findPlaceByKey(placeKey);
+    return place?.title || String(placeKey || '');
+}
+
+async function updateCardFeedbackBadge(placeKey, domId) {
+    const key = String(placeKey ?? '').trim();
+    if (!key) return;
+    const el = document.getElementById(domId);
+    if (!el) return;
+    const provider = getFeedbackProvider();
+    if (!provider?.getSummary) return;
+    const summary = await provider.getSummary(key);
+    const likes = Number(summary?.likes || 0);
+    const comments = Number(summary?.comments || 0);
+    el.innerHTML = `
+        <span class="card-feedback-pill">❤️ ${likes.toLocaleString()}</span>
+        <span class="card-feedback-pill">💬 ${comments.toLocaleString()}</span>
+    `;
+}
+
+function hydrateCardFeedbackBadges(places) {
+    const items = Array.isArray(places) ? places : [];
+    items.forEach((place) => {
+        const key = getPlaceKey(place);
+        if (!key) return;
+        const domId = `card-feedback-${hashPlaceKey(key)}`;
+        updateCardFeedbackBadge(key, domId);
+    });
+}
+
+function refreshCardFeedbackBadges() {
+    document.querySelectorAll('.card-feedback-badges').forEach((el) => {
+        const key = el.getAttribute('data-place-key');
+        if (!key) return;
+        updateCardFeedbackBadge(key, el.id);
+    });
+}
+
+function renderRankingPanel(rankings) {
+    const panel = document.getElementById('rankingPanel');
+    if (!panel) return;
+    const topCommented = Array.isArray(rankings?.topCommented) ? rankings.topCommented : [];
+    const topSearched = Array.isArray(rankings?.topSearched) ? rankings.topSearched : [];
+    const title = translations[currentLang]?.rankingTitle || '인기 순위';
+    const labelComments = translations[currentLang]?.rankingComments || '댓글 많은 장소';
+    const labelSearches = translations[currentLang]?.rankingSearches || '인기 검색어';
+    const emptyLabel = translations[currentLang]?.rankingEmpty || '아직 데이터가 없습니다.';
+    const commentSuffix = translations[currentLang]?.comments || '댓글';
+    const searchSuffix = translations[currentLang]?.rankingSearchCount || '검색';
+    const periodLabel = translations[currentLang]?.rankingPeriodLabel || '기간';
+    const periodAll = translations[currentLang]?.rankingPeriodAll || '전체';
+    const period7d = translations[currentLang]?.rankingPeriod7d || '7일';
+    const period30d = translations[currentLang]?.rankingPeriod30d || '30일';
+
+    const renderList = (items, suffix, type) => {
+        if (!items.length) {
+            return `<div class="ranking-empty">${emptyLabel}</div>`;
+        }
+        return items.map((item, idx) => {
+            const name = type === 'search'
+                ? escapeHtmlAttr(String(item.term || '').trim())
+                : escapeHtmlAttr(getPlaceTitleByKey(item.placeKey));
+            const dataAttr = type === 'search'
+                ? `data-search-term="${escapeHtmlAttr(String(item.term || '').trim())}"`
+                : `data-place-key="${escapeHtmlAttr(item.placeKey)}"`;
+            return `
+                <button type="button" class="ranking-item" ${dataAttr}>
+                    <span class="ranking-rank">${idx + 1}</span>
+                    <span class="ranking-name">${name}</span>
+                    <span class="ranking-count">${(item.count || 0).toLocaleString()} ${suffix}</span>
+                </button>
+            `;
+        }).join('');
+    };
+
+    panel.innerHTML = `
+        <div class="ranking-card">
+            <div class="ranking-head">🏆 <span data-i18n="rankingTitle">${title}</span></div>
+            <div class="ranking-filters">
+                <span class="ranking-filter-label" data-i18n="rankingPeriodLabel">${periodLabel}</span>
+                <button type="button" class="ranking-filter ${currentRankingPeriodDays === 0 ? 'active' : ''}" data-period="0">${periodAll}</button>
+                <button type="button" class="ranking-filter ${currentRankingPeriodDays === 7 ? 'active' : ''}" data-period="7">${period7d}</button>
+                <button type="button" class="ranking-filter ${currentRankingPeriodDays === 30 ? 'active' : ''}" data-period="30">${period30d}</button>
+            </div>
+            <div class="ranking-grid">
+                <div class="ranking-section">
+                    <div class="ranking-label"><span data-i18n="rankingComments">${labelComments}</span></div>
+                    <div class="ranking-list">
+                        ${renderList(topCommented, commentSuffix, 'comment')}
+                    </div>
+                </div>
+                <div class="ranking-section">
+                    <div class="ranking-label"><span data-i18n="rankingSearches">${labelSearches}</span></div>
+                    <div class="ranking-list">
+                        ${renderList(topSearched, searchSuffix, 'search')}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 // Enhanced showRestaurantDetails with all features
 function showRestaurantDetails(restaurantId) {
     const restaurant = findPlaceByKey(restaurantId);
     if (!restaurant) return;
 
     lastRestaurantDetailId = restaurantId;
+    const placeKey = getPlaceKey(restaurant);
+    const feedbackDomId = buildPlaceFeedbackDomId(placeKey, 'modal');
     
     // Update stamp count
     updateStampCount(restaurant.category);
@@ -1282,6 +1937,8 @@ function showRestaurantDetails(restaurantId) {
                     border-radius: 10px; cursor: pointer; font-weight: 600;
                 ">💱 <span data-i18n="currencyCalculator">${translations[currentLang]?.currencyCalculator || '환율 계산기'}</span></button>
             </div>
+
+            ${renderPlaceFeedbackSection(placeKey, feedbackDomId)}
             
             <div style="display: flex; gap: 10px;">
                 <button onclick="addToPlanner(${toOnclickArg(restaurant.title)})" style="
@@ -1307,6 +1964,7 @@ function showRestaurantDetails(restaurantId) {
     `;
     
     document.body.appendChild(modal);
+    updatePlaceFeedbackUI(placeKey, feedbackDomId);
     
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
@@ -1473,6 +2131,7 @@ function setupEventListeners() {
             if (e.key === 'Enter') {
                 if (t) clearTimeout(t);
                 apply();
+                trackSearchTermHit();
             }
         });
 
@@ -1480,6 +2139,7 @@ function setupEventListeners() {
             searchButton.addEventListener('click', () => {
                 if (t) clearTimeout(t);
                 apply();
+                trackSearchTermHit();
             });
         }
     }
@@ -1491,6 +2151,42 @@ function setupEventListeners() {
             searchClear.style.display = 'none';
             filterMarkers();
             searchInput.focus();
+        });
+    }
+
+    const rankingPanel = document.getElementById('rankingPanel');
+    if (rankingPanel) {
+        rankingPanel.addEventListener('click', (e) => {
+            const target = e.target.closest('.ranking-item');
+            const filterBtn = e.target.closest('.ranking-filter');
+            if (filterBtn) {
+                const days = Number(filterBtn.getAttribute('data-period') || 0);
+                currentRankingPeriodDays = Number.isNaN(days) ? 0 : days;
+                refreshPlaceRankings();
+                return;
+            }
+            if (!target) return;
+            const searchTerm = target.getAttribute('data-search-term');
+            if (searchTerm) {
+                const searchInput = document.getElementById('searchInput');
+                const searchClear = document.getElementById('searchClear');
+                if (searchInput) {
+                    searchInput.value = searchTerm;
+                }
+                searchQuery = searchTerm;
+                listRenderLimit = 120;
+                if (searchClear) searchClear.style.display = searchQuery.trim() ? 'inline-flex' : 'none';
+                filterMarkers();
+                trackSearchTermHit();
+                pulseSearchUI();
+                return;
+            }
+            const placeKey = target.getAttribute('data-place-key');
+            if (!placeKey) return;
+            const place = findPlaceByKey(placeKey);
+            if (place) {
+                showPlaceDetail(place);
+            }
         });
     }
 }
@@ -1655,6 +2351,8 @@ function showPlaceDetail(place) {
     const tags = generateTags(place);
     const tagsHtml = tags.map((x) => `<span style="display:inline-flex;align-items:center;font-size:12px;font-weight:900;background:#f2f2f7;border-radius:999px;padding:6px 10px;color:#111827;">${escapeHtmlAttr(x)}</span>`).join(' ');
     const noMapBadge = hasCoords(place) ? '' : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:900;background:#fef2f2;border-radius:999px;padding:6px 10px;color:#991b1b;">지도 표시 불가</span>`;
+    const placeKey = getPlaceKey(place);
+    const feedbackDomId = buildPlaceFeedbackDomId(placeKey, 'detail');
     resultContainer.innerHTML = `
         <div class="place-detail-card" style="
             background: white;
@@ -1711,6 +2409,8 @@ function showPlaceDetail(place) {
                 " ${ytOk ? '' : 'disabled'}>▶ <span data-i18n="youtube">${translations[currentLang]?.youtube || '유튜브'}</span></button>
             </div>
 
+            ${renderPlaceFeedbackSection(placeKey, feedbackDomId)}
+
             <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; display:flex; justify-content:flex-end;">
                 <button onclick="clearPlaceDetail()" style="
                     background: #f2f2f7; color: #1d1d1f; border: none; padding: 10px 14px; 
@@ -1720,6 +2420,7 @@ function showPlaceDetail(place) {
         </div>
     `;
     
+    updatePlaceFeedbackUI(placeKey, feedbackDomId);
     console.log('상세 정보 표시 완료');
 }
 
@@ -1802,6 +2503,33 @@ const translations = {
         showToDriver: '기사님께 보여주세요',
         audioGuide: '오디오 가이드',
         currencyCalculator: '환율 계산기',
+        like: '좋아요',
+        comments: '댓글',
+        addComment: '댓글 남기기',
+        commentPlaceholder: '여행 팁이나 경험을 남겨보세요',
+        feedbackLocalNote: '이 댓글/좋아요는 현재 기기(LocalStorage)에만 저장됩니다.',
+        feedbackCloudNote: '이 댓글/좋아요는 익명 로그인 후 서버에 저장됩니다.',
+        noComments: '아직 댓글이 없어요. 첫 댓글을 남겨보세요!',
+        commentEmpty: '댓글을 입력해 주세요.',
+        commentLimit: '댓글은 200자까지 가능합니다.',
+        commenterName: '닉네임',
+        commenterPlaceholder: '닉네임(선택)',
+        commenterAnonymous: '익명',
+        commentDelete: '삭제',
+        commentDeleteConfirm: '이 댓글을 삭제할까요?',
+        commentDeleteDenied: '삭제할 수 없습니다.',
+        commentReport: '신고',
+        commentReportConfirm: '이 댓글을 신고할까요?',
+        commentReportDone: '신고가 접수되었습니다.',
+        rankingTitle: '인기 순위',
+        rankingComments: '댓글 많은 장소',
+        rankingSearches: '인기 검색어',
+        rankingSearchCount: '검색',
+        rankingEmpty: '아직 데이터가 없습니다.',
+        rankingPeriodLabel: '기간',
+        rankingPeriodAll: '전체',
+        rankingPeriod7d: '7일',
+        rankingPeriod30d: '30일',
         googleMapsRoute: '구글 맵 경로 보기',
         close: '닫기',
         remove: '제거',
@@ -1880,6 +2608,33 @@ const translations = {
         showToDriver: 'Show to driver',
         audioGuide: 'Audio guide',
         currencyCalculator: 'Currency calculator',
+        like: 'Like',
+        comments: 'Comments',
+        addComment: 'Post comment',
+        commentPlaceholder: 'Share a tip or your experience',
+        feedbackLocalNote: 'Comments/likes are stored only on this device (LocalStorage).',
+        feedbackCloudNote: 'Comments/likes are stored on the server after anonymous sign-in.',
+        noComments: 'No comments yet. Be the first!',
+        commentEmpty: 'Please enter a comment.',
+        commentLimit: 'Comments can be up to 200 characters.',
+        commenterName: 'Nickname',
+        commenterPlaceholder: 'Nickname (optional)',
+        commenterAnonymous: 'Anonymous',
+        commentDelete: 'Delete',
+        commentDeleteConfirm: 'Delete this comment?',
+        commentDeleteDenied: 'You cannot delete this comment.',
+        commentReport: 'Report',
+        commentReportConfirm: 'Report this comment?',
+        commentReportDone: 'Report submitted.',
+        rankingTitle: 'Top Rankings',
+        rankingComments: 'Most Commented',
+        rankingSearches: 'Top Searches',
+        rankingSearchCount: 'searches',
+        rankingEmpty: 'No data yet.',
+        rankingPeriodLabel: 'Period',
+        rankingPeriodAll: 'All',
+        rankingPeriod7d: '7 days',
+        rankingPeriod30d: '30 days',
         googleMapsRoute: 'Google Maps route',
         close: 'Close',
         remove: 'Remove',
@@ -1947,6 +2702,33 @@ const translations = {
         showToDriver: '運転手に見せる',
         audioGuide: 'オーディオガイド',
         currencyCalculator: '為替計算機',
+        like: 'いいね',
+        comments: 'コメント',
+        addComment: 'コメントする',
+        commentPlaceholder: '旅のヒントや体験を共有してください',
+        feedbackLocalNote: 'コメント/いいねはこの端末のローカルに保存されます。',
+        noComments: 'まだコメントがありません。最初のコメントをどうぞ。',
+        commentEmpty: 'コメントを入力してください。',
+        commentLimit: 'コメントは200文字までです。',
+        feedbackCloudNote: 'コメント/いいねは匿名ログイン後にサーバーへ保存されます。',
+        commenterName: 'ニックネーム',
+        commenterPlaceholder: 'ニックネーム（任意）',
+        commenterAnonymous: '匿名',
+        commentDelete: '削除',
+        commentDeleteConfirm: 'このコメントを削除しますか？',
+        commentDeleteDenied: '削除できません。',
+        commentReport: '報告',
+        commentReportConfirm: 'このコメントを報告しますか？',
+        commentReportDone: '報告が送信されました。',
+        rankingTitle: '人気ランキング',
+        rankingComments: 'コメント数トップ',
+        rankingSearches: '人気検索ワード',
+        rankingSearchCount: '検索',
+        rankingEmpty: 'まだデータがありません。',
+        rankingPeriodLabel: '期間',
+        rankingPeriodAll: '全期間',
+        rankingPeriod7d: '7日',
+        rankingPeriod30d: '30日',
         googleMapsRoute: 'Google マップで経路',
         close: '閉じる',
         remove: '削除',
@@ -2014,6 +2796,33 @@ const translations = {
         showToDriver: '给司机看',
         audioGuide: '语音导览',
         currencyCalculator: '汇率计算器',
+        like: '点赞',
+        comments: '评论',
+        addComment: '发表评论',
+        commentPlaceholder: '分享旅行小贴士或体验',
+        feedbackLocalNote: '评论/点赞仅保存在此设备（LocalStorage）。',
+        noComments: '还没有评论，快来第一个留言吧！',
+        commentEmpty: '请输入评论。',
+        commentLimit: '评论最多200字。',
+        feedbackCloudNote: '评论/点赞在匿名登录后保存到服务器。',
+        commenterName: '昵称',
+        commenterPlaceholder: '昵称（可选）',
+        commenterAnonymous: '匿名',
+        commentDelete: '删除',
+        commentDeleteConfirm: '删除这条评论吗？',
+        commentDeleteDenied: '无法删除该评论。',
+        commentReport: '举报',
+        commentReportConfirm: '举报这条评论吗？',
+        commentReportDone: '举报已提交。',
+        rankingTitle: '热门排行',
+        rankingComments: '评论最多',
+        rankingSearches: '热门搜索词',
+        rankingSearchCount: '搜索',
+        rankingEmpty: '暂无数据。',
+        rankingPeriodLabel: '周期',
+        rankingPeriodAll: '全部',
+        rankingPeriod7d: '7天',
+        rankingPeriod30d: '30天',
         googleMapsRoute: 'Google 地图路线',
         close: '关闭',
         remove: '移除',
@@ -2081,6 +2890,33 @@ const translations = {
         showToDriver: 'แสดงให้คนขับดู',
         audioGuide: 'ไกด์เสียง',
         currencyCalculator: 'เครื่องคำนวณอัตราแลกเปลี่ยน',
+        like: 'ถูกใจ',
+        comments: 'ความคิดเห็น',
+        addComment: 'ส่งความคิดเห็น',
+        commentPlaceholder: 'แชร์ทิปหรือประสบการณ์การเดินทาง',
+        feedbackLocalNote: 'ความคิดเห็น/ถูกใจจะถูกเก็บไว้ในอุปกรณ์นี้เท่านั้น (LocalStorage).',
+        noComments: 'ยังไม่มีความคิดเห็น เป็นคนแรกสิ!',
+        commentEmpty: 'กรุณาใส่ความคิดเห็น',
+        commentLimit: 'ความคิดเห็นยาวได้สูงสุด 200 ตัวอักษร',
+        feedbackCloudNote: 'ความคิดเห็น/ถูกใจจะถูกบันทึกบนเซิร์ฟเวอร์หลังลงชื่อเข้าใช้แบบไม่ระบุตัวตน',
+        commenterName: 'ชื่อเล่น',
+        commenterPlaceholder: 'ชื่อเล่น (ไม่บังคับ)',
+        commenterAnonymous: 'ไม่ระบุตัวตน',
+        commentDelete: 'ลบ',
+        commentDeleteConfirm: 'ลบความคิดเห็นนี้ไหม?',
+        commentDeleteDenied: 'ไม่สามารถลบความคิดเห็นได้',
+        commentReport: 'รายงาน',
+        commentReportConfirm: 'รายงานความคิดเห็นนี้ไหม?',
+        commentReportDone: 'ส่งรายงานแล้ว',
+        rankingTitle: 'อันดับยอดนิยม',
+        rankingComments: 'ความคิดเห็นมากสุด',
+        rankingSearches: 'คำค้นยอดนิยม',
+        rankingSearchCount: 'การค้นหา',
+        rankingEmpty: 'ยังไม่มีข้อมูล',
+        rankingPeriodLabel: 'ช่วงเวลา',
+        rankingPeriodAll: 'ทั้งหมด',
+        rankingPeriod7d: '7 วัน',
+        rankingPeriod30d: '30 วัน',
         googleMapsRoute: 'เส้นทาง Google Maps',
         close: 'ปิด',
         remove: 'ลบ',
@@ -2148,6 +2984,33 @@ const translations = {
         showToDriver: 'اعرضه للسائق',
         audioGuide: 'دليل صوتي',
         currencyCalculator: 'حاسبة العملات',
+        like: 'إعجاب',
+        comments: 'التعليقات',
+        addComment: 'إضافة تعليق',
+        commentPlaceholder: 'شارك نصيحة أو تجربة سفر',
+        feedbackLocalNote: 'التعليقات/الإعجابات محفوظة على هذا الجهاز فقط (LocalStorage).',
+        noComments: 'لا توجد تعليقات بعد. كن الأول!',
+        commentEmpty: 'يرجى إدخال تعليق.',
+        commentLimit: 'الحد الأقصى للتعليق 200 حرف.',
+        feedbackCloudNote: 'يتم حفظ التعليقات/الإعجابات على الخادم بعد تسجيل دخول مجهول.',
+        commenterName: 'الاسم المستعار',
+        commenterPlaceholder: 'اسم مستعار (اختياري)',
+        commenterAnonymous: 'مجهول',
+        commentDelete: 'حذف',
+        commentDeleteConfirm: 'هل تريد حذف هذا التعليق؟',
+        commentDeleteDenied: 'لا يمكنك حذف هذا التعليق.',
+        commentReport: 'إبلاغ',
+        commentReportConfirm: 'هل تريد الإبلاغ عن هذا التعليق؟',
+        commentReportDone: 'تم إرسال البلاغ.',
+        rankingTitle: 'الترتيب الأعلى',
+        rankingComments: 'الأكثر تعليقًا',
+        rankingSearches: 'الأكثر بحثًا (كلمات)',
+        rankingSearchCount: 'بحث',
+        rankingEmpty: 'لا توجد بيانات بعد.',
+        rankingPeriodLabel: 'المدة',
+        rankingPeriodAll: 'الكل',
+        rankingPeriod7d: '7 أيام',
+        rankingPeriod30d: '30 يومًا',
         googleMapsRoute: 'مسار Google Maps',
         close: 'إغلاق',
         remove: 'إزالة',
@@ -2216,6 +3079,33 @@ const translations = {
         showToDriver: 'Montrer au chauffeur',
         audioGuide: 'Guide audio',
         currencyCalculator: 'Calculateur de devises',
+        like: 'J’aime',
+        comments: 'Commentaires',
+        addComment: 'Publier un commentaire',
+        commentPlaceholder: 'Partagez un conseil ou une expérience',
+        feedbackLocalNote: 'Commentaires/likes enregistrés uniquement sur cet appareil (LocalStorage).',
+        noComments: 'Pas encore de commentaires. Soyez le premier !',
+        commentEmpty: 'Veuillez saisir un commentaire.',
+        commentLimit: '200 caractères maximum.',
+        feedbackCloudNote: 'Commentaires/likes enregistrés sur le serveur après connexion anonyme.',
+        commenterName: 'Pseudo',
+        commenterPlaceholder: 'Pseudo (optionnel)',
+        commenterAnonymous: 'Anonyme',
+        commentDelete: 'Supprimer',
+        commentDeleteConfirm: 'Supprimer ce commentaire ?',
+        commentDeleteDenied: 'Vous ne pouvez pas supprimer ce commentaire.',
+        commentReport: 'Signaler',
+        commentReportConfirm: 'Signaler ce commentaire ?',
+        commentReportDone: 'Signalement envoyé.',
+        rankingTitle: 'Classement',
+        rankingComments: 'Les plus commentés',
+        rankingSearches: 'Recherches populaires',
+        rankingSearchCount: 'recherches',
+        rankingEmpty: 'Pas de données pour le moment.',
+        rankingPeriodLabel: 'Période',
+        rankingPeriodAll: 'Tout',
+        rankingPeriod7d: '7 jours',
+        rankingPeriod30d: '30 jours',
         googleMapsRoute: 'Itinéraire Google Maps',
         close: 'Fermer',
         remove: 'Retirer',
@@ -2273,6 +3163,33 @@ const translations = {
         showToDriver: 'Показать водителю',
         audioGuide: 'Аудиогид',
         currencyCalculator: 'Конвертер валют',
+        like: 'Нравится',
+        comments: 'Комментарии',
+        addComment: 'Оставить комментарий',
+        commentPlaceholder: 'Поделитесь советом или опытом',
+        feedbackLocalNote: 'Комментарии/лайки сохраняются только на этом устройстве (LocalStorage).',
+        noComments: 'Комментариев пока нет. Будьте первым!',
+        commentEmpty: 'Пожалуйста, введите комментарий.',
+        commentLimit: 'Максимум 200 символов.',
+        feedbackCloudNote: 'Комментарии/лайки сохраняются на сервере после анонимного входа.',
+        commenterName: 'Никнейм',
+        commenterPlaceholder: 'Никнейм (необязательно)',
+        commenterAnonymous: 'Аноним',
+        commentDelete: 'Удалить',
+        commentDeleteConfirm: 'Удалить этот комментарий?',
+        commentDeleteDenied: 'Нельзя удалить этот комментарий.',
+        commentReport: 'Пожаловаться',
+        commentReportConfirm: 'Пожаловаться на этот комментарий?',
+        commentReportDone: 'Жалоба отправлена.',
+        rankingTitle: 'Топ рейтинга',
+        rankingComments: 'Больше комментариев',
+        rankingSearches: 'Популярные запросы',
+        rankingSearchCount: 'поисков',
+        rankingEmpty: 'Данных пока нет.',
+        rankingPeriodLabel: 'Период',
+        rankingPeriodAll: 'Все',
+        rankingPeriod7d: '7 дней',
+        rankingPeriod30d: '30 дней',
         googleMapsRoute: 'Маршрут в Google Maps',
         close: 'Закрыть',
         remove: 'Удалить',
@@ -2596,6 +3513,26 @@ function updateLanguage() {
     }
 }
 
+window.addEventListener('app:langChange', () => {
+    document.querySelectorAll('.place-feedback').forEach((el) => {
+        const key = el.getAttribute('data-place-key');
+        if (!key) return;
+        updatePlaceFeedbackUI(key, el.id);
+    });
+    refreshPlaceRankings();
+    refreshCardFeedbackBadges();
+});
+
+window.addEventListener('feedback:ready', () => {
+    document.querySelectorAll('.place-feedback').forEach((el) => {
+        const key = el.getAttribute('data-place-key');
+        if (!key) return;
+        updatePlaceFeedbackUI(key, el.id);
+    });
+    refreshPlaceRankings();
+    refreshCardFeedbackBadges();
+});
+
 // Update restaurant list
 function updateRestaurantList() {
     const grid = document.getElementById('contentGrid');
@@ -2648,6 +3585,7 @@ function updateRestaurantList() {
             frag.appendChild(createRestaurantCard(place));
         });
         grid.appendChild(frag);
+        hydrateCardFeedbackBadges(visiblePlaces);
 
         if (visiblePlacesAll.length > visiblePlaces.length) {
             const more = document.createElement('div');
@@ -2691,6 +3629,7 @@ function updateRestaurantList() {
         frag.appendChild(createRestaurantCard(place));
     });
     grid.appendChild(frag);
+    hydrateCardFeedbackBadges(visiblePlaces);
 
     if (visiblePlacesAll.length > visiblePlaces.length) {
         const more = document.createElement('div');
@@ -2767,15 +3706,24 @@ function createRestaurantCard(place) {
     const noMapBadge = hasCoords(place) ? '' : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:900;background:#f2f2f7;border-radius:999px;padding:4px 8px;color:#6b7280;">지도 표시 불가</span>`;
     const tags = generateTags(place);
     const tagsHtml = tags.map((x) => `<span style="display:inline-flex;align-items:center;font-size:11px;font-weight:900;background:#f2f2f7;border-radius:999px;padding:4px 8px;color:#111827;">${escapeHtmlAttr(x)}</span>`).join(' ');
+    const q = String(searchQuery ?? '').trim();
+    const titleHtml = q ? highlightMatch(place.title, q) : escapeHtmlAttr(place.title);
+    const addressHtml = q ? highlightMatch(place.address, q) : escapeHtmlAttr(place.address);
+    const searchPill = q ? `<span class="search-term-pill" title="${escapeHtmlAttr(q)}">🔎 ${escapeHtmlAttr(q)}</span>` : '';
     card.innerHTML = `
         <div class="card-img" style="background-image: url('${imageUrl}')"></div>
         <div class="card-body">
             <small style="color: var(--apple-blue); font-weight: 600; font-size: 12px;">
                 ${normalizedCategory}
             </small>
-            <h2 class="card-title">${place.title} ${heritageBadge} <span style="font-size:12px;font-weight:900;color:#111827;opacity:.9;">${youtubeBadge}</span></h2>
-            <p class="card-desc" style="white-space: pre-line;">${place.address}</p>
+            <h2 class="card-title">${titleHtml} ${heritageBadge} <span style="font-size:12px;font-weight:900;color:#111827;opacity:.9;">${youtubeBadge}</span></h2>
+            <p class="card-desc" style="white-space: pre-line;">${addressHtml}</p>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px 0;">${noMapBadge} ${tagsHtml}</div>
+            ${searchPill}
+            <div class="card-feedback-badges" id="card-feedback-${hashPlaceKey(getPlaceKey(place))}" data-place-key="${escapeHtmlAttr(getPlaceKey(place))}">
+                <span class="card-feedback-pill">❤️ 0</span>
+                <span class="card-feedback-pill">💬 0</span>
+            </div>
             
             <div class="card-actions">
                 <button class="btn btn-secondary" onclick="showRestaurantDetails(${toOnclickArg(place.title)})">
