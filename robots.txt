@@ -1,4 +1,8 @@
 User-agent: *
+Disallow:
 Allow: /
+
+Host: korea-tra.pages.dev
 Sitemap: https://korea-tra.pages.dev/sitemap.xml
 Sitemap: https://korea-tra.pages.dev/sitemap.txt
+Sitemap: https://korea-tra.pages.dev/rss.xml
