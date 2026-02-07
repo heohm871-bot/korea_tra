@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="K-Spotlight">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0c141c"/>
+      <stop offset="100%" stop-color="#233649"/>
+    </linearGradient>
+    <radialGradient id="accent1" cx="75%" cy="10%" r="45%">
+      <stop offset="0%" stop-color="#2ea0d6" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#2ea0d6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="accent2" cx="10%" cy="85%" r="55%">
+      <stop offset="0%" stop-color="#ff7648" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#ff7648" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#accent1)"/>
+  <rect width="1200" height="630" fill="url(#accent2)"/>
+  <text x="90" y="300" fill="#f5f8fc" font-size="92" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700">
+    K-Spotlight
+  </text>
+  <text x="90" y="360" fill="#cddceb" font-size="34" font-family="DejaVu Sans, Arial, sans-serif" font-weight="400">
+    K-POP / Drama / Stars / Shows / Culture
+  </text>
+</svg>

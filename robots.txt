@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://korea-tra.pages.dev/sitemap.xml
