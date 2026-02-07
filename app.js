@@ -19,6 +19,9 @@ let flaggedItemKeys = new Set();
 
 let lastRestaurantDetailId = null;
 let currentRankingPeriodDays = 0; // 0 = all time
+let currentDetailPlace = null;
+const cardContentCache = new Map();
+const cardContentInflight = new Map();
 
 const CATEGORY_NORMALIZE_VERSION = 7;
 const PLACE_FEEDBACK_STORAGE_KEY = 'kspotlight.placeFeedback.v1';
@@ -583,6 +586,122 @@ function generateStory(place) {
         '사진/메모를 남겨두면 다음 여행에서 재방문이 쉬워요.'
     ];
     return { hook, background, tips, moments: generateTags(place).slice(0, 3) };
+}
+
+function normalizeCardContentLanguage(lang) {
+    const raw = String(lang || '').trim().toLowerCase();
+    if (!raw) return 'ko';
+    if (raw === 'jp') return 'ja';
+    if (raw === 'cn') return 'zh-CN';
+    return raw;
+}
+
+function getCardContentCacheKey(placeKey, lang) {
+    return `${String(placeKey || '').trim()}::${normalizeCardContentLanguage(lang)}`;
+}
+
+function buildFallbackCardContent(place, lang = 'ko') {
+    const story = generateStory(place);
+    const tags = generateTags(place);
+    return {
+        language: normalizeCardContentLanguage(lang),
+        title: String(place?.title || '').trim(),
+        storyTitle: String(story?.hook || '').trim(),
+        storyBody: String(story?.background || '').trim(),
+        tips: [
+            String(story?.tips?.[0] || '').trim(),
+            String(story?.tips?.[1] || '').trim(),
+            String(story?.tips?.[2] || '').trim()
+        ],
+        tags: [
+            String(tags?.[0] || '').trim(),
+            String(tags?.[1] || '').trim(),
+            String(tags?.[2] || '').trim()
+        ],
+        categoryLabel: String(getCategoryTranslation(normalizeCategory(place)) || '').trim()
+    };
+}
+
+function normalizeCardContentSchema(raw, targetLanguage, place) {
+    if (!raw || typeof raw !== 'object') return null;
+    const normalizedLanguage = normalizeCardContentLanguage(raw.language || targetLanguage);
+    const out = {
+        language: normalizedLanguage,
+        title: String(raw.title || place?.title || '').trim(),
+        storyTitle: String(raw.storyTitle || raw.hook || '').trim(),
+        storyBody: String(raw.storyBody || raw.background || '').trim(),
+        tips: Array.isArray(raw.tips) ? raw.tips.slice(0, 3).map((x) => String(x || '').trim()) : [],
+        tags: Array.isArray(raw.tags) ? raw.tags.slice(0, 3).map((x) => String(x || '').trim()) : [],
+        categoryLabel: String(raw.categoryLabel || '').trim()
+    };
+
+    while (out.tips.length < 3) out.tips.push('');
+    while (out.tags.length < 3) out.tags.push('');
+    if (!out.storyTitle || !out.storyBody) {
+        const fallback = buildFallbackCardContent(place, targetLanguage);
+        out.storyTitle = out.storyTitle || fallback.storyTitle;
+        out.storyBody = out.storyBody || fallback.storyBody;
+        out.tips = out.tips.every((x) => !x) ? fallback.tips : out.tips;
+        out.tags = out.tags.every((x) => !x) ? fallback.tags : out.tags;
+    }
+    if (!out.categoryLabel) {
+        out.categoryLabel = String(getCategoryTranslation(normalizeCategory(place)) || '').trim();
+    }
+    return out;
+}
+
+async function getLocalizedCardContent(place, targetLanguage, options = {}) {
+    const placeKey = getPlaceKey(place);
+    if (!placeKey) return buildFallbackCardContent(place, targetLanguage);
+
+    const lang = normalizeCardContentLanguage(targetLanguage);
+    const cacheKey = getCardContentCacheKey(placeKey, lang);
+    const force = Boolean(options?.force);
+
+    if (!force && cardContentCache.has(cacheKey)) {
+        return cardContentCache.get(cacheKey);
+    }
+
+    if (!force && cardContentInflight.has(cacheKey)) {
+        return cardContentInflight.get(cacheKey);
+    }
+
+    const promise = (async () => {
+        const fromPlace = place?.cardContent?.[lang] || place?.cardContent?.ko || null;
+        if (fromPlace && !force) {
+            const normalized = normalizeCardContentSchema(fromPlace, lang, place);
+            cardContentCache.set(cacheKey, normalized);
+            return normalized;
+        }
+
+        const backend = window.feedbackBackend;
+        if (backend?.getLocalizedCardContent) {
+            try {
+                const localized = await backend.getLocalizedCardContent(placeKey, lang, {
+                    sourceLanguage: 'ko',
+                    force
+                });
+                const normalized = normalizeCardContentSchema(localized, lang, place);
+                if (normalized) {
+                    cardContentCache.set(cacheKey, normalized);
+                    return normalized;
+                }
+            } catch (err) {
+                console.warn('[cardContent] localized load failed:', err);
+            }
+        }
+
+        const fallback = buildFallbackCardContent(place, lang);
+        cardContentCache.set(cacheKey, fallback);
+        return fallback;
+    })();
+
+    cardContentInflight.set(cacheKey, promise);
+    try {
+        return await promise;
+    } finally {
+        cardContentInflight.delete(cacheKey);
+    }
 }
 
 function normalizeProvinceName(provinceRaw) {
@@ -2649,8 +2768,9 @@ function loadRemainingData() {
 }
 
 // 상세 정보 표시 함수
-function showPlaceDetail(place) {
+async function showPlaceDetail(place, options = {}) {
     console.log('showPlaceDetail called with:', place);
+    currentDetailPlace = place || null;
     
     // 결과를 표시할 HTML 요소 선택
     const resultContainer = document.getElementById('contentGrid');
@@ -2666,12 +2786,22 @@ function showPlaceDetail(place) {
     // "검색 결과가 없습니다" 내용을 지우고 선택된 데이터로 채움
     const safeKeyArg = toOnclickArg(place?.title ?? '');
     const ytOk = hasYoutube(place);
-    const story = generateStory(place);
-    const tags = generateTags(place);
+    const localized = await getLocalizedCardContent(place, currentLang, {
+        force: Boolean(options?.forceLocalization)
+    });
+    const story = {
+        hook: String(localized?.storyTitle || '').trim(),
+        background: String(localized?.storyBody || '').trim(),
+        tips: Array.isArray(localized?.tips) ? localized.tips : ['', '', '']
+    };
+    const tags = Array.isArray(localized?.tags) ? localized.tags : generateTags(place);
+    const categoryLabel = String(localized?.categoryLabel || getCategoryTranslation(normalizeCategory(place)) || '').trim();
     const tagsHtml = tags.map((x) => `<span style="display:inline-flex;align-items:center;font-size:12px;font-weight:900;background:#f2f2f7;border-radius:999px;padding:6px 10px;color:#111827;">${escapeHtmlAttr(x)}</span>`).join(' ');
     const noMapBadge = hasCoords(place) ? '' : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:900;background:#fef2f2;border-radius:999px;padding:6px 10px;color:#991b1b;">지도 표시 불가</span>`;
     const placeKey = getPlaceKey(place);
     const feedbackDomId = buildPlaceFeedbackDomId(placeKey, 'detail');
+    const storyLabel = currentLang === 'ko' ? '스토리' : 'Story';
+    const tipsLabel = currentLang === 'ko' ? '팁 3개' : 'Top 3 Tips';
     resultContainer.innerHTML = `
         <div class="place-detail-card" style="
             background: white;
@@ -2691,17 +2821,17 @@ function showPlaceDetail(place) {
                 </div>
             </div>
             <p style="margin: 5px 0; color: #666; font-size: 14px;"><strong><span data-i18n="addressLabel">${translations[currentLang]?.addressLabel || '주소'}</span>:</strong> ${place.address || ''}</p>
-            <p style="margin: 5px 0; color: #666; font-size: 14px;"><strong>Category:</strong> ${normalizeCategory(place) || ''}</p>
-            ${place.image ? `<img src="${place.image}" alt="${escapeHtmlAttr(place.title || '장소 이미지')}" style="width:100%;height:auto;border-radius:8px;margin-top:10px;">` : ''}
+                <p style="margin: 5px 0; color: #666; font-size: 14px;"><strong>Category:</strong> ${escapeHtmlAttr(categoryLabel)}</p>
+                ${place.image ? `<img src="${place.image}" alt="${escapeHtmlAttr(place.title || '장소 이미지')}" style="width:100%;height:auto;border-radius:8px;margin-top:10px;">` : ''}
 
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">${noMapBadge} ${tagsHtml}</div>
 
             <div style="margin-top: 16px; padding: 14px 14px; border: 1px solid #eee; border-radius: 12px; background: #fafafa;">
-                <div style="font-weight: 900; color:#111827; margin-bottom: 8px;">스토리</div>
+                <div style="font-weight: 900; color:#111827; margin-bottom: 8px;">${escapeHtmlAttr(storyLabel)}</div>
                 <div style="font-size: 14px; font-weight: 900; color:#111827; margin-bottom: 6px;">${escapeHtmlAttr(story.hook || '')}</div>
                 <div style="font-size: 13px; color:#374151; line-height: 1.6; white-space: pre-line;">${escapeHtmlAttr(story.background || '')}</div>
                 <div style="margin-top: 10px; font-size: 13px; color:#111827;">
-                    <div style="font-weight: 900; margin-bottom: 6px;">Tips 3</div>
+                    <div style="font-weight: 900; margin-bottom: 6px;">${escapeHtmlAttr(tipsLabel)}</div>
                     <div style="display:grid; gap:6px;">
                         <div>1) ${escapeHtmlAttr(story.tips?.[0] || '')}</div>
                         <div>2) ${escapeHtmlAttr(story.tips?.[1] || '')}</div>
@@ -2745,6 +2875,7 @@ function showPlaceDetail(place) {
 
 // 상세 정보 지우기 함수
 function clearPlaceDetail() {
+    currentDetailPlace = null;
     const resultContainer = document.getElementById('contentGrid');
     if (resultContainer) {
         resultContainer.innerHTML = `
@@ -4139,6 +4270,10 @@ function updateLanguage() {
     renderDataSummary();
     renderCategoryChart();
     renderFilterSummaryCard();
+
+    if (currentDetailPlace) {
+        showPlaceDetail(currentDetailPlace);
+    }
 }
 
 window.addEventListener('app:langChange', () => {

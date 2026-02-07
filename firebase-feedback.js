@@ -17,6 +17,7 @@ import {
     runTransaction
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js";
 
 const fallbackConfig = {
     apiKey: "YOUR_API_KEY",
@@ -42,7 +43,8 @@ const backend = {
     async deleteComment() { return false; },
     async reportComment() {},
     async trackSearch() {},
-    async getRankings() { return { topCommented: [], topSearched: [] }; }
+    async getRankings() { return { topCommented: [], topSearched: [] }; },
+    async getLocalizedCardContent() { return null; }
 };
 
 window.feedbackBackend = backend;
@@ -53,6 +55,7 @@ if (!isConfigReady) {
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     const auth = getAuth(app);
+    const functions = getFunctions(app, "asia-northeast3");
 
     const getSafeKey = (placeKey) => encodeURIComponent(String(placeKey || '').trim());
     const getTodayKey = (ts = Date.now()) => {
@@ -102,6 +105,14 @@ if (!isConfigReady) {
     const getPlaceRef = (placeKey) => {
         const safeKey = getSafeKey(placeKey);
         return doc(db, "places", safeKey);
+    };
+
+    const normalizeTargetLanguage = (lang) => {
+        const raw = String(lang || '').trim().toLowerCase();
+        if (!raw) return 'ko';
+        if (raw === 'jp') return 'ja';
+        if (raw === 'cn') return 'zh-CN';
+        return raw;
     };
 
     const fetchComments = async (placeKey, uid) => {
@@ -257,6 +268,34 @@ if (!isConfigReady) {
             topCommented,
             topSearched
         };
+    };
+
+    backend.getLocalizedCardContent = async (placeKey, targetLanguage, options = {}) => {
+        const safeKey = getSafeKey(placeKey);
+        const placeRef = doc(db, "places", safeKey);
+        const normalizedTarget = normalizeTargetLanguage(targetLanguage || 'ko');
+        const sourceLanguage = normalizeTargetLanguage(options?.sourceLanguage || 'ko');
+        const force = Boolean(options?.force);
+
+        const snap = await getDoc(placeRef);
+        const data = snap.exists() ? snap.data() : {};
+        const fromDoc = data?.cardContent?.[normalizedTarget] || null;
+        if (fromDoc && !force) return fromDoc;
+
+        const localizeCardContent = httpsCallable(functions, "localizeCardContent");
+        const result = await localizeCardContent({
+            placeId: safeKey,
+            targetLanguage: normalizedTarget,
+            sourceLanguage,
+            force
+        });
+
+        const localized = result?.data?.cardContent || null;
+        if (localized) return localized;
+
+        const refetch = await getDoc(placeRef);
+        const refetchData = refetch.exists() ? refetch.data() : {};
+        return refetchData?.cardContent?.[normalizedTarget] || refetchData?.cardContent?.ko || null;
     };
 
     signInAnonymously(auth).catch((error) => {
