@@ -27,6 +27,7 @@ const PLACE_SEARCH_STORAGE_KEY = 'kspotlight.placeSearch.v1';
 const PLACE_SEARCH_TERM_STORAGE_KEY = 'kspotlight.searchTerms.v1';
 const LOCAL_UID_STORAGE_KEY = 'kspotlight.localUid.v1';
 const COMMENTER_NAME_STORAGE_KEY = 'kspotlight.commenterName.v1';
+const PLANNER_ORIGIN_STORAGE_KEY = 'k-local-vibe-planner-origin';
 const PLACE_COMMENT_MAX_LENGTH = 200;
 const PLACE_COMMENT_VISIBLE_LIMIT = 20;
 const ADSENSE_CLIENT_ID = 'ca-pub-9451611288918928';
@@ -4122,6 +4123,14 @@ function showPlannerModal() {
         alert(translations[currentLang]?.plannerEmpty || '플래너에 추가된 장소가 없습니다.');
         return;
     }
+
+    const plannerOrigin = String(localStorage.getItem(PLANNER_ORIGIN_STORAGE_KEY) || '').trim();
+    const originLabel = currentLang === 'ko' ? '출발 위치' : 'Starting point';
+    const originPlaceholder = currentLang === 'ko' ? '예: 서울역, 부산역, 37.5665,126.9780' : 'e.g., Seoul Station or 37.5665,126.9780';
+    const originHint = currentLang === 'ko'
+        ? '출발 위치를 입력하면 경로 생성 시 시작점으로 사용됩니다.'
+        : 'This will be used as the origin when generating the route.';
+    const originGeoLabel = currentLang === 'ko' ? '현재 위치' : 'Use my location';
     
     const modal = document.createElement('div');
     modal.style.cssText = `
@@ -4137,6 +4146,14 @@ function showPlannerModal() {
     modal.innerHTML = `
         <div style="background: white; border-radius: 20px; padding: 30px; max-width: 500px; max-height: 80vh; overflow-y: auto; margin: 20px;">
             <h2 style="margin: 0 0 20px 0; color: #1d1d1f;">${translations[currentLang]?.myTrip || '나만의 코스 리스트'}</h2>
+            <div class="planner-origin">
+                <div class="planner-origin-title">${originLabel}</div>
+                <div class="planner-origin-row">
+                    <input id="plannerOriginInput" class="planner-origin-input" type="text" placeholder="${escapeHtmlAttr(originPlaceholder)}" value="${escapeHtmlAttr(plannerOrigin)}" />
+                    <button id="plannerOriginGeo" type="button" class="planner-origin-btn">${originGeoLabel}</button>
+                </div>
+                <div class="planner-origin-hint">${originHint}</div>
+            </div>
             <div id="plannerList"></div>
             <div style="margin-top: 20px; display: flex; gap: 10px;">
                 <button onclick="generateGoogleMapsRoute()" style="
@@ -4184,6 +4201,42 @@ function showPlannerModal() {
             modal.remove();
         }
     });
+
+    const originInput = modal.querySelector('#plannerOriginInput');
+    const originBtn = modal.querySelector('#plannerOriginGeo');
+    if (originInput) {
+        const save = () => {
+            const v = String(originInput.value || '').trim();
+            if (v) {
+                localStorage.setItem(PLANNER_ORIGIN_STORAGE_KEY, v);
+            } else {
+                localStorage.removeItem(PLANNER_ORIGIN_STORAGE_KEY);
+            }
+        };
+        originInput.addEventListener('change', save);
+        originInput.addEventListener('blur', save);
+    }
+    if (originBtn) {
+        originBtn.addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                showToast(currentLang === 'ko' ? '위치 정보를 사용할 수 없습니다.' : 'Geolocation is not available.');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude.toFixed(5);
+                    const lng = pos.coords.longitude.toFixed(5);
+                    const v = `${lat},${lng}`;
+                    if (originInput) originInput.value = v;
+                    localStorage.setItem(PLANNER_ORIGIN_STORAGE_KEY, v);
+                    showToast(currentLang === 'ko' ? '현재 위치를 출발점으로 저장했습니다.' : 'Saved current location as origin.');
+                },
+                () => {
+                    showToast(currentLang === 'ko' ? '현재 위치를 가져오지 못했습니다.' : 'Unable to get current location.');
+                }
+            );
+        });
+    }
 
     const importBtn = modal.querySelector('#importToCourseBtn');
     if (importBtn) {
@@ -4294,7 +4347,8 @@ function generateGoogleMapsRoute() {
     };
 
     // Create Google Maps URL with waypoints
-    const origin = toRoutePoint(plannerItems[0]);
+    const originOverride = String(localStorage.getItem(PLANNER_ORIGIN_STORAGE_KEY) || '').trim();
+    const origin = originOverride || toRoutePoint(plannerItems[0]);
     const destination = toRoutePoint(plannerItems[plannerItems.length - 1]);
     
     let waypoints = '';
