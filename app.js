@@ -33,19 +33,6 @@ const ADSENSE_CLIENT_ID = 'ca-pub-9451611288918928';
 let adsenseLoadAttempted = false;
 let categoryChartMode = 'all'; // 'all' | 'filtered'
 
-function getFeatureNotice(kind) {
-    const ko = {
-        planner: '플래너 기능은 준비 중입니다. 장소를 추가하면 활성화됩니다.',
-        stamps: '스탬프 기능은 베타(준비 중)입니다.'
-    };
-    const en = {
-        planner: 'Planner is in beta. It will activate after you add places.',
-        stamps: 'Stamps are in beta (coming soon).'
-    };
-    const dict = currentLang === 'ko' ? ko : en;
-    return dict[kind] || en[kind] || 'Feature is in beta.';
-}
-
 function hasPublisherContentReady() {
     const main = document.querySelector('.main-content');
     if (!main) return false;
@@ -190,7 +177,6 @@ function ensureStampButton() {
         btn = document.createElement('button');
         btn.id = 'stampButton';
         btn.type = 'button';
-        btn.classList.add('feature-beta');
         btn.style.cssText = `
             position: fixed; bottom: 140px; right: 20px; z-index: 20000;
             background: #0071e3; color: white; border: none; padding: 12px 14px;
@@ -198,35 +184,11 @@ function ensureStampButton() {
             box-shadow: 0 10px 30px rgba(0,0,0,0.18);
         `;
         btn.addEventListener('click', () => {
-            const stamps = JSON.parse(localStorage.getItem('k-local-vibe-stamps')) || {};
-            const hasAny = Object.values(stamps).some((v) => Number(v) > 0);
-            if (!hasAny) {
-                showToast(getFeatureNotice('stamps'));
-                return;
-            }
             showStampStatus();
         });
         document.body.appendChild(btn);
     }
-    const label = translations[currentLang]?.stampButton || '스탬프';
-    btn.innerHTML = `${label} <span class="beta-pill">베타</span>`;
-    updateStampButtonsState();
-}
-
-function updateStampButtonsState() {
-    const stamps = JSON.parse(localStorage.getItem('k-local-vibe-stamps')) || {};
-    const hasAny = Object.values(stamps).some((v) => Number(v) > 0);
-    ['stampButton', 'stampStatusButton'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        if (!hasAny) {
-            el.classList.add('feature-disabled');
-            el.setAttribute('aria-disabled', 'true');
-        } else {
-            el.classList.remove('feature-disabled');
-            el.removeAttribute('aria-disabled');
-        }
-    });
+    btn.textContent = translations[currentLang]?.stampButton || '스탬프';
 }
 
 async function copyJsonToClipboard(jsonText) {
@@ -1153,12 +1115,6 @@ document.addEventListener('DOMContentLoaded', function() {
     initMap();
     updatePlannerButton();
     ensureStampButton();
-    const stampStatusBtn = document.getElementById('stampStatusButton');
-    if (stampStatusBtn) {
-        const label = translations[currentLang]?.stampStatus || '스탬프 현황';
-        stampStatusBtn.innerHTML = `🎯 ${label} <span class="beta-pill">베타</span>`;
-    }
-    updateStampButtonsState();
     refreshPlaceRankings();
 });
 
@@ -1224,25 +1180,14 @@ function addStampStatusButton() {
     const header = document.querySelector('.header');
     const button = document.createElement('button');
     button.id = 'stampStatusButton';
-    button.classList.add('feature-beta');
     button.style.cssText = `
         background: #ff9500; color: white; border: none; padding: 8px 16px;
         border-radius: 20px; cursor: pointer; font-weight: 600; font-size: 14px;
         margin-left: 12px;
     `;
-    const label = translations[currentLang]?.stampStatus || '스탬프 현황';
-    button.innerHTML = `🎯 ${label} <span class="beta-pill">베타</span>`;
-    button.onclick = () => {
-        const stamps = JSON.parse(localStorage.getItem('k-local-vibe-stamps')) || {};
-        const hasAny = Object.values(stamps).some((v) => Number(v) > 0);
-        if (!hasAny) {
-            showToast(getFeatureNotice('stamps'));
-            return;
-        }
-        showStampStatus();
-    };
+    button.innerHTML = `🎯 ${translations[currentLang]?.stampStatus || '스탬프 현황'}`;
+    button.onclick = showStampStatus;
     header.appendChild(button);
-    updateStampButtonsState();
 }
 
 // Update city options based on selected province (dynamic from placeData)
@@ -4390,7 +4335,6 @@ function updatePlannerButton() {
     if (!button) {
         button = document.createElement('button');
         button.id = 'plannerButton';
-        button.classList.add('feature-beta');
         button.style.cssText = `
             position: fixed; bottom: 20px; right: 20px; z-index: 20000;
             background: #0071e3; color: white; border: none; padding: 15px 20px;
@@ -4399,24 +4343,14 @@ function updatePlannerButton() {
             align-items: center; gap: 8px;
         `;
         button.onclick = function() {
-            if (count <= 0) {
-                showToast(getFeatureNotice('planner'));
-                return;
-            }
             showPlannerModal();
         };
         document.body.appendChild(button);
     }
-
-    const label = translations[currentLang]?.myTrip || '나만의 코스';
-    button.innerHTML = `📍 ${label} (${count}) <span class="beta-pill">베타</span>`;
-    if (count <= 0) {
-        button.classList.add('feature-disabled');
-        button.setAttribute('aria-disabled', 'true');
-    } else {
-        button.classList.remove('feature-disabled');
-        button.removeAttribute('aria-disabled');
-    }
+    
+    button.innerHTML = `
+        📍 ${translations[currentLang]?.myTrip || '나만의 코스'} (${count})
+    `;
 }
 
 // Digital Stamp Tour functionality
