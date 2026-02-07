@@ -2649,7 +2649,7 @@ function showPlaceDetail(place) {
             </div>
             <p style="margin: 5px 0; color: #666; font-size: 14px;"><strong><span data-i18n="addressLabel">${translations[currentLang]?.addressLabel || '주소'}</span>:</strong> ${place.address || ''}</p>
             <p style="margin: 5px 0; color: #666; font-size: 14px;"><strong>Category:</strong> ${normalizeCategory(place) || ''}</p>
-            ${place.image ? `<img src="${place.image}" style="width:100%;height:auto;border-radius:8px;margin-top:10px;">` : ''}
+            ${place.image ? `<img src="${place.image}" alt="${escapeHtmlAttr(place.title || '장소 이미지')}" style="width:100%;height:auto;border-radius:8px;margin-top:10px;">` : ''}
 
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">${noMapBadge} ${tagsHtml}</div>
 
@@ -2722,7 +2722,7 @@ function createPopupContent(place) {
             <h4 style="margin: 0 0 5px 0; font-size: 16px; font-weight: bold;">${place.title} ${heritageBadge} <span style="font-size:12px;font-weight:900;color:#111827;opacity:.9;">${youtubeBadge}</span></h4>
             <p style="font-size: 12px; color: #666; margin: 2px 0;">${escapeHtmlAttr(getCategoryLabel(place))}</p>
             <p style="font-size: 13px; margin: 5px 0; line-height: 1.4; white-space: pre-line;">${place.address}</p>
-            ${place.image ? `<img src="${place.image}" style="width:100%;height:auto;border-radius:4px;margin-top:5px;">` : ''}
+            ${place.image ? `<img src="${place.image}" alt="${escapeHtmlAttr(place.title || '장소 이미지')}" style="width:100%;height:auto;border-radius:4px;margin-top:5px;">` : ''}
             <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee;">
                 <button onclick="showRestaurantDetails(${safeTitleArg})" style="
                     background: #0071e3; color: white; border: none; padding: 6px 12px; 
@@ -2740,7 +2740,7 @@ function createPopupContent(place) {
 // Enhanced translations for 8 languages
 const translations = {
     ko: {
-        title: 'K-Spotlight',
+        title: 'K-Spotlight 한국 여행 추천 지도',
         subtitle: '여행 계획할 때 ‘어디부터 볼지’ 고민 줄이기—지역별로 한 번에 모아 보여드립니다.',
         heroTitle: '지역별 추천을 한 번에 정리한 여행 큐레이션',
         heroDesc: '맛집·카페·숙박·관광·액티비티 정보를 지역별로 묶어, 여행 계획의 첫 단계를 빠르게 시작할 수 있게 돕습니다.',
@@ -2864,7 +2864,7 @@ const translations = {
         footerCurationLine2: '수정·삭제 요청은 메일로 접수되며 확인 후 순차 반영됩니다.'
     },
     en: {
-        title: 'K-Spotlight',
+        title: 'K-Spotlight Korea travel guide map',
         subtitle: 'Plan your trip with less guesswork — see each region\'s highlights in one place.',
         heroTitle: 'Curated regional highlights in one place',
         heroDesc: 'We group food, cafes, stays, sightseeing, and activities by region to help you start planning fast.',

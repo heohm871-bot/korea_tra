@@ -97,7 +97,7 @@ function layoutHtml({ title, description, canonical, h1, intro, listItemsHtml, b
   <meta name="twitter:image" content="${SITE_URL}/og-image.svg">
   <meta name="robots" content="index,follow">
   <link rel="stylesheet" href="/style.css">
-  <link rel="icon" href="/favicon.jpg" type="image/jpeg">
+  <link rel="icon" href="/favicon.svg" type="image/jpeg">
   <style>
     .seo-wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 56px; }
     .seo-nav { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
