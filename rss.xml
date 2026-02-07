@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Korea TRA</title>
+    <link>https://korea-tra.pages.dev/</link>
+    <description>Korea TRA updates</description>
+    <language>ko</language>
+    <lastBuildDate>Sat, 07 Feb 2026 00:00:00 GMT</lastBuildDate>
+
+    <item>
+      <title>Home</title>
+      <link>https://korea-tra.pages.dev/</link>
+      <guid isPermaLink="true">https://korea-tra.pages.dev/</guid>
+      <description><![CDATA[홈 페이지]]></description>
+      <pubDate>Sat, 07 Feb 2026 00:00:00 GMT</pubDate>
+    </item>
+
+    <item>
+      <title>About</title>
+      <link>https://korea-tra.pages.dev/about.html</link>
+      <guid isPermaLink="true">https://korea-tra.pages.dev/about.html</guid>
+      <description><![CDATA[소개 페이지]]></description>
+      <pubDate>Sat, 07 Feb 2026 00:00:00 GMT</pubDate>
+    </item>
+
+    <item>
+      <title>Contact</title>
+      <link>https://korea-tra.pages.dev/contact.html</link>
+      <guid isPermaLink="true">https://korea-tra.pages.dev/contact.html</guid>
+      <description><![CDATA[문의 페이지]]></description>
+      <pubDate>Sat, 07 Feb 2026 00:00:00 GMT</pubDate>
+    </item>
+
+    <item>
+      <title>Privacy</title>
+      <link>https://korea-tra.pages.dev/privacy.html</link>
+      <guid isPermaLink="true">https://korea-tra.pages.dev/privacy.html</guid>
+      <description><![CDATA[개인정보처리방침]]></description>
+      <pubDate>Sat, 07 Feb 2026 00:00:00 GMT</pubDate>
+    </item>
+
+    <item>
+      <title>Terms</title>
+      <link>https://korea-tra.pages.dev/terms.html</link>
+      <guid isPermaLink="true">https://korea-tra.pages.dev/terms.html</guid>
+      <description><![CDATA[이용약관]]></description>
+      <pubDate>Sat, 07 Feb 2026 00:00:00 GMT</pubDate>
+    </item>
+
+  </channel>
+</rss>
