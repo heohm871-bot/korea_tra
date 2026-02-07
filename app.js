@@ -4124,14 +4124,30 @@ function showPlannerModal() {
         return;
     }
 
-    const plannerOrigin = String(localStorage.getItem(PLANNER_ORIGIN_STORAGE_KEY) || '').trim();
+    let plannerOrigin = String(localStorage.getItem(PLANNER_ORIGIN_STORAGE_KEY) || '').trim();
+    const provinceVal = document.getElementById('provinceSelect')?.value || 'all';
+    const cityVal = document.getElementById('citySelect')?.value || 'all';
+    if (!plannerOrigin) {
+        if (cityVal !== 'all') {
+            plannerOrigin = getCityName(cityVal);
+        } else if (provinceVal !== 'all') {
+            plannerOrigin = getProvinceName(provinceVal);
+        }
+        if (plannerOrigin) {
+            localStorage.setItem(PLANNER_ORIGIN_STORAGE_KEY, plannerOrigin);
+        }
+    }
     const originLabel = currentLang === 'ko' ? '출발 위치' : 'Starting point';
     const originPlaceholder = currentLang === 'ko' ? '예: 서울역, 부산역, 37.5665,126.9780' : 'e.g., Seoul Station or 37.5665,126.9780';
     const originHint = currentLang === 'ko'
         ? '출발 위치를 입력하면 경로 생성 시 시작점으로 사용됩니다.'
         : 'This will be used as the origin when generating the route.';
     const originGeoLabel = currentLang === 'ko' ? '현재 위치' : 'Use my location';
-    
+    const summaryTitle = currentLang === 'ko' ? '이동 요약' : 'Trip Summary';
+    const summaryOriginLabel = currentLang === 'ko' ? '출발' : 'Origin';
+    const summaryDestinationLabel = currentLang === 'ko' ? '도착' : 'Destination';
+    const summaryStopsLabel = currentLang === 'ko' ? '경유' : 'Stops';
+
     const modal = document.createElement('div');
     modal.style.cssText = `
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -4153,6 +4169,23 @@ function showPlannerModal() {
                     <button id="plannerOriginGeo" type="button" class="planner-origin-btn">${originGeoLabel}</button>
                 </div>
                 <div class="planner-origin-hint">${originHint}</div>
+            </div>
+            <div class="planner-summary">
+                <div class="planner-summary-title">${summaryTitle}</div>
+                <div class="planner-summary-row">
+                    <div class="planner-summary-item">
+                        <strong>${summaryOriginLabel}</strong>
+                        <span>${escapeHtmlAttr(plannerOrigin || '-')}</span>
+                    </div>
+                    <div class="planner-summary-item">
+                        <strong>${summaryDestinationLabel}</strong>
+                        <span>${escapeHtmlAttr(plannerItems[plannerItems.length - 1]?.title || '-')}</span>
+                    </div>
+                    <div class="planner-summary-item">
+                        <strong>${summaryStopsLabel}</strong>
+                        <span>${Math.max(plannerItems.length - 1, 0)}</span>
+                    </div>
+                </div>
             </div>
             <div id="plannerList"></div>
             <div style="margin-top: 20px; display: flex; gap: 10px;">
