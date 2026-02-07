@@ -361,6 +361,7 @@ function updateSitemaps(extraUrls) {
   const baseUrls = [
     `${SITE_URL}/`,
     `${SITE_URL}/about.html`,
+    `${SITE_URL}/geo.html`,
     `${SITE_URL}/contact.html`,
     `${SITE_URL}/privacy.html`,
     `${SITE_URL}/terms.html`,
