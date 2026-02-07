@@ -4143,6 +4143,7 @@ function showPlannerModal() {
         ? '출발 위치를 입력하면 경로 생성 시 시작점으로 사용됩니다.'
         : 'This will be used as the origin when generating the route.';
     const originGeoLabel = currentLang === 'ko' ? '현재 위치' : 'Use my location';
+    const originPickLabel = currentLang === 'ko' ? '지도에서 선택' : 'Pick on map';
     const summaryTitle = currentLang === 'ko' ? '이동 요약' : 'Trip Summary';
     const summaryOriginLabel = currentLang === 'ko' ? '출발' : 'Origin';
     const summaryDestinationLabel = currentLang === 'ko' ? '도착' : 'Destination';
@@ -4167,6 +4168,7 @@ function showPlannerModal() {
                 <div class="planner-origin-row">
                     <input id="plannerOriginInput" class="planner-origin-input" type="text" placeholder="${escapeHtmlAttr(originPlaceholder)}" value="${escapeHtmlAttr(plannerOrigin)}" />
                     <button id="plannerOriginGeo" type="button" class="planner-origin-btn">${originGeoLabel}</button>
+                    <button id="plannerOriginPick" type="button" class="planner-origin-btn ghost">${originPickLabel}</button>
                 </div>
                 <div class="planner-origin-hint">${originHint}</div>
             </div>
@@ -4237,6 +4239,7 @@ function showPlannerModal() {
 
     const originInput = modal.querySelector('#plannerOriginInput');
     const originBtn = modal.querySelector('#plannerOriginGeo');
+    const originPickBtn = modal.querySelector('#plannerOriginPick');
     if (originInput) {
         const save = () => {
             const v = String(originInput.value || '').trim();
@@ -4268,6 +4271,28 @@ function showPlannerModal() {
                     showToast(currentLang === 'ko' ? '현재 위치를 가져오지 못했습니다.' : 'Unable to get current location.');
                 }
             );
+        });
+    }
+    if (originPickBtn) {
+        originPickBtn.addEventListener('click', () => {
+            if (!map) {
+                showToast(currentLang === 'ko' ? '지도를 사용할 수 없습니다.' : 'Map is not available.');
+                return;
+            }
+            modal.remove();
+            showToast(currentLang === 'ko' ? '지도에서 출발점을 클릭하세요.' : 'Click the map to set your origin.');
+
+            const onMapClick = (e) => {
+                const lat = e?.latlng?.lat;
+                const lng = e?.latlng?.lng;
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                const v = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+                localStorage.setItem(PLANNER_ORIGIN_STORAGE_KEY, v);
+                map.off('click', onMapClick);
+                showToast(currentLang === 'ko' ? '출발점을 저장했습니다.' : 'Origin saved.');
+                setTimeout(() => showPlannerModal(), 150);
+            };
+            map.on('click', onMapClick);
         });
     }
 

@@ -805,6 +805,11 @@ body {
     font-weight: 800;
     cursor: pointer;
 }
+.planner-origin-btn.ghost {
+    background: #f3f4f6;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+}
 .planner-origin-hint {
     font-size: 11px;
     color: #6b7280;
