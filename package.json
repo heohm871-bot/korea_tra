@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "npx serve .",
+    "build:seo": "node scripts/generate-static-seo-pages.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
