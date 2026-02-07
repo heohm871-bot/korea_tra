@@ -1467,6 +1467,49 @@ function openYoutubeByKey(placeKey) {
     window.open(`https://www.youtube.com/results?search_query=${q}`, '_blank');
 }
 
+function buildViralSharePayload(place) {
+    const safeTitle = String(place?.title || 'K-Spotlight').trim();
+    const url = new URL(`${window.location.origin}/`);
+    url.searchParams.set('utm_source', 'sns');
+    url.searchParams.set('utm_medium', 'share');
+    url.searchParams.set('utm_campaign', 'viral_place');
+    url.searchParams.set('spot', safeTitle);
+
+    const title = `${safeTitle} | K-Spotlight 한국 여행 추천`;
+    const text = `${safeTitle} 추천 장소를 K-Spotlight에서 확인해보세요.`;
+    return {
+        title,
+        text,
+        url: url.toString()
+    };
+}
+
+async function sharePlaceByKey(placeKey) {
+    const place = findPlaceByKey(placeKey);
+    const payload = buildViralSharePayload(place || { title: String(placeKey || '').trim() || 'K-Spotlight' });
+
+    if (navigator.share) {
+        try {
+            await navigator.share(payload);
+            showToast(currentLang === 'ko' ? '공유 완료!' : 'Shared successfully!');
+            return;
+        } catch (err) {
+            // User canceled share dialog.
+            if (err && err.name === 'AbortError') return;
+        }
+    }
+
+    try {
+        await navigator.clipboard.writeText(payload.url);
+        showToast(currentLang === 'ko' ? '공유 링크가 복사되었습니다.' : 'Share link copied.');
+    } catch (_) {
+        // ignore clipboard failures
+    }
+
+    const addToAnyUrl = `https://www.addtoany.com/share#url=${encodeURIComponent(payload.url)}&title=${encodeURIComponent(payload.title)}`;
+    window.open(addToAnyUrl, '_blank', 'noopener,noreferrer');
+}
+
 function escapeHtmlAttr(value) {
     return String(value)
         .replace(/&/g, '&amp;')
@@ -4316,6 +4359,9 @@ function createRestaurantCard(place) {
                 </button>
                 <button class="btn btn-primary" onclick="addToPlanner(${toOnclickArg(place.title)})">
                     ➕ ${translations[currentLang]?.addToPlanner || '플래너 추가'}
+                </button>
+                <button class="btn btn-share" onclick="sharePlaceByKey(${toOnclickArg(place.title)})">
+                    🔗 ${currentLang === 'ko' ? '공유' : 'Share'}
                 </button>
             </div>
         </div>
