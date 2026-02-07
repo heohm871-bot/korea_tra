@@ -29,6 +29,36 @@ const LOCAL_UID_STORAGE_KEY = 'kspotlight.localUid.v1';
 const COMMENTER_NAME_STORAGE_KEY = 'kspotlight.commenterName.v1';
 const PLACE_COMMENT_MAX_LENGTH = 200;
 const PLACE_COMMENT_VISIBLE_LIMIT = 20;
+const ADSENSE_CLIENT_ID = 'ca-pub-9451611288918928';
+let adsenseLoadAttempted = false;
+let categoryChartMode = 'all'; // 'all' | 'filtered'
+
+function hasPublisherContentReady() {
+    const main = document.querySelector('.main-content');
+    if (!main) return false;
+    const text = String(main.textContent || '').replace(/\s+/g, ' ').trim();
+    if (text.length < 200) return false;
+    const grid = document.getElementById('contentGrid');
+    if (!grid) return false;
+    return true;
+}
+
+function injectAdSenseScript() {
+    if (adsenseLoadAttempted) return;
+    adsenseLoadAttempted = true;
+    const script = document.createElement('script');
+    script.async = true;
+    script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT_ID}`;
+    script.crossOrigin = 'anonymous';
+    document.head.appendChild(script);
+}
+
+function maybeLoadAdSense() {
+    if (adsenseLoadAttempted) return;
+    if (typeof placeData === 'undefined' || !Array.isArray(placeData) || placeData.length === 0) return;
+    if (!hasPublisherContentReady()) return;
+    injectAdSenseScript();
+}
 
 function looksLikeRestaurant(place) {
     const title = String(place?.title ?? '').trim();
@@ -631,6 +661,204 @@ function getProvinceStats() {
         .sort((a, b) => b.count - a.count);
 }
 
+function renderFeaturedRegions() {
+    const list = document.getElementById('featuredRegionList');
+    if (!list) return;
+    if (!Array.isArray(placeData) || placeData.length === 0) {
+        list.innerHTML = `
+            <div class="featured-item featured-placeholder">
+                <strong>데이터 준비 중</strong>
+                <span>잠시만 기다려 주세요</span>
+            </div>
+        `;
+        return;
+    }
+
+    const byProv = new Map();
+    for (const p of placeData) {
+        const prov = String(p?.province ?? '').trim();
+        if (!prov) continue;
+        if (!byProv.has(prov)) {
+            byProv.set(prov, { count: 0, cats: new Map() });
+        }
+        const entry = byProv.get(prov);
+        entry.count += 1;
+        const cat = getCategoryKeyForStats(p);
+        if (cat) {
+            entry.cats.set(cat, (entry.cats.get(cat) || 0) + 1);
+        }
+    }
+
+    const top = Array.from(byProv.entries())
+        .map(([province, data]) => ({ province, ...data }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 6);
+
+    if (top.length === 0) {
+        list.innerHTML = `
+            <div class="featured-item featured-placeholder">
+                <strong>추천 지역 없음</strong>
+                <span>데이터를 추가 중입니다</span>
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = top.map((row) => {
+        const sortedCats = Array.from(row.cats.entries()).sort((a, b) => b[1] - a[1]);
+        const topCat = sortedCats[0]?.[0] || 'all';
+        const secondCat = sortedCats[1]?.[0] || '';
+        const thirdCat = sortedCats[2]?.[0] || '';
+        const label = getCategoryDisplayLabel(topCat);
+        const badges = [
+            topCat ? `<span class="featured-badge badge-${getCategoryClass(topCat)}">${escapeHtmlAttr(getCategoryDisplayLabel(topCat))}</span>` : '',
+            secondCat ? `<span class="featured-badge badge-${getCategoryClass(secondCat)}">${escapeHtmlAttr(getCategoryDisplayLabel(secondCat))}</span>` : '',
+            thirdCat ? `<span class="featured-badge badge-${getCategoryClass(thirdCat)}">${escapeHtmlAttr(getCategoryDisplayLabel(thirdCat))}</span>` : ''
+        ].filter(Boolean).join('');
+
+        return `
+            <div class="featured-item clickable" role="button" data-province="${escapeHtmlAttr(row.province)}" aria-label="${escapeHtmlAttr(row.province)} 추천 보기">
+                <div class="featured-meta">
+                    <strong>${escapeHtmlAttr(getProvinceName(row.province))}</strong>
+                    <span>${escapeHtmlAttr(label)} · ${row.count.toLocaleString()}곳</span>
+                </div>
+                <div class="featured-badges">${badges}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderDataSummary() {
+    const totalEl = document.getElementById('statTotalCount');
+    const coordsEl = document.getElementById('statCoordsRate');
+    const topCatEl = document.getElementById('statTopCategory');
+    if (!totalEl || !coordsEl || !topCatEl) return;
+
+    if (!Array.isArray(placeData) || placeData.length === 0) {
+        totalEl.textContent = '로딩 중';
+        coordsEl.textContent = '로딩 중';
+        topCatEl.textContent = '로딩 중';
+        return;
+    }
+
+    const total = placeData.length;
+    const coordsCount = placeData.filter(p => Number.isFinite(parseFloat(p?.lat)) && Number.isFinite(parseFloat(p?.lng))).length;
+    const rate = total === 0 ? 0 : Math.round((coordsCount / total) * 100);
+
+    const catCounts = new Map();
+    for (const p of placeData) {
+        const cat = getCategoryKeyForStats(p);
+        if (!cat) continue;
+        catCounts.set(cat, (catCounts.get(cat) || 0) + 1);
+    }
+    const topCat = Array.from(catCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || 'all';
+    const topLabel = getCategoryDisplayLabel(topCat);
+
+    totalEl.textContent = `${total.toLocaleString()}곳`;
+    coordsEl.textContent = `${rate}% (${coordsCount.toLocaleString()}곳)`;
+    topCatEl.textContent = topLabel;
+}
+
+function renderCategoryChart() {
+    const chart = document.getElementById('categoryChart');
+    if (!chart) return;
+    const base = categoryChartMode === 'filtered' ? getFilteredPlaces() : (Array.isArray(placeData) ? placeData : []);
+    if (!Array.isArray(placeData) || placeData.length === 0) {
+        chart.innerHTML = '<div class="chart-placeholder">로딩 중</div>';
+        return;
+    }
+    if (!Array.isArray(base) || base.length === 0) {
+        chart.innerHTML = '<div class="chart-placeholder">필터 결과가 없습니다</div>';
+        return;
+    }
+
+    const counts = new Map();
+    let total = 0;
+    for (const p of base) {
+        const cat = getCategoryKeyForStats(p);
+        if (!cat) continue;
+        counts.set(cat, (counts.get(cat) || 0) + 1);
+        total += 1;
+    }
+
+    const rows = Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 7);
+
+    if (rows.length === 0) {
+        chart.innerHTML = '<div class="chart-placeholder">표시할 카테고리가 없습니다</div>';
+        return;
+    }
+
+    chart.innerHTML = rows.map(([cat, count], idx) => {
+        const pct = total ? Math.round((count / total) * 100) : 0;
+        const label = getCategoryDisplayLabel(cat);
+        const barClass = `bar-${getCategoryClass(cat)}`;
+        return `
+            <div class="chart-row">
+                <div class="chart-label">
+                    <span>${escapeHtmlAttr(label)}</span>
+                    <span>${pct}% (${count.toLocaleString()}곳)</span>
+                </div>
+                <div class="chart-bar">
+                    <span class="${barClass}" style="width:${pct}%;"></span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderFilterSummaryCard() {
+    const el = document.getElementById('filterSummaryCard');
+    if (!el) return;
+
+    const labels = currentLang === 'ko'
+        ? { title: '현재 필터 요약', total: '결과', top: '상위 카테고리', region: '지역', city: '시/군', category: '카테고리', search: '검색' }
+        : { title: 'Current Filter Summary', total: 'Results', top: 'Top Category', region: 'Region', city: 'City', category: 'Category', search: 'Search' };
+
+    const provinceVal = document.getElementById('provinceSelect')?.value || 'all';
+    const cityVal = document.getElementById('citySelect')?.value || 'all';
+    const categoryVal = currentFilter || 'all';
+    const q = String(searchQuery ?? '').trim();
+
+    const tags = [];
+    if (provinceVal !== 'all') tags.push(`${labels.region}: ${getProvinceName(provinceVal)}`);
+    if (cityVal !== 'all') tags.push(`${labels.city}: ${getCityName(cityVal)}`);
+    if (categoryVal !== 'all') tags.push(`${labels.category}: ${getCategoryDisplayLabel(categoryVal)}`);
+    if (q) tags.push(`${labels.search}: ${q}`);
+
+    const filtered = getFilteredPlaces();
+    const total = filtered.length;
+    const catCounts = new Map();
+    for (const p of filtered) {
+        const cat = getCategoryKeyForStats(p);
+        if (!cat) continue;
+        catCounts.set(cat, (catCounts.get(cat) || 0) + 1);
+    }
+    const topCat = Array.from(catCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || 'all';
+    const topLabel = getCategoryDisplayLabel(topCat);
+
+    el.innerHTML = `
+        <div class="filter-summary-header">
+            <span>${escapeHtmlAttr(labels.title)}</span>
+            <span>${total.toLocaleString()}</span>
+        </div>
+        <div class="filter-summary-tags">
+            ${tags.length ? tags.map(t => `<span class="filter-tag">${escapeHtmlAttr(t)}</span>`).join('') : `<span class="filter-tag">${escapeHtmlAttr(labels.total)}: ${total.toLocaleString()}</span>`}
+        </div>
+        <div class="filter-summary-stats">
+            <div class="filter-stat">
+                <strong>${escapeHtmlAttr(labels.total)}</strong>
+                <span>${total.toLocaleString()}</span>
+            </div>
+            <div class="filter-stat">
+                <strong>${escapeHtmlAttr(labels.top)}</strong>
+                <span>${escapeHtmlAttr(topLabel)}</span>
+            </div>
+        </div>
+    `;
+}
+
 function showProvinceSummary() {
     mapMode = 'province';
     currentFilter = 'all';
@@ -687,6 +915,11 @@ function showProvinceSummary() {
     });
 
     updateResultCount();
+    maybeLoadAdSense();
+    renderFeaturedRegions();
+    renderDataSummary();
+    renderCategoryChart();
+    renderFilterSummaryCard();
 }
 
 function showProvinceDetail(province) {
@@ -715,6 +948,8 @@ function showProvinceDetail(province) {
     if (latLngs.length > 0) {
         map.fitBounds(L.latLngBounds(latLngs).pad(0.2));
     }
+    maybeLoadAdSense();
+    renderFilterSummaryCard();
 }
 
 // City coordinates for flyTo functionality
@@ -2066,6 +2301,8 @@ function setupEventListeners() {
             showProvinceSummary();
         } else {
             showProvinceDetail(e.target.value);
+            const topCat = getTopCategoryFromPlaces(currentDataSet, true);
+            selectCategoryTab(topCat);
         }
     });
     
@@ -2153,6 +2390,44 @@ function setupEventListeners() {
             searchInput.focus();
         });
     }
+
+    // Featured region click -> set province filter
+    const featuredList = document.getElementById('featuredRegionList');
+    if (featuredList) {
+        featuredList.addEventListener('click', (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLElement)) return;
+            const card = target.closest('.featured-item');
+            if (!card) return;
+            const province = card.getAttribute('data-province');
+            if (!province) return;
+            const provinceSelect = document.getElementById('provinceSelect');
+            if (provinceSelect) {
+                provinceSelect.value = province;
+                updateCityOptions(province);
+            }
+            showProvinceDetail(province);
+            const topCat = getTopCategoryFromPlaces(currentDataSet, true);
+            selectCategoryTab(topCat);
+            const appBody = document.querySelector('.app-body');
+            if (appBody && typeof appBody.scrollIntoView === 'function') {
+                appBody.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    }
+
+    // Category chart toggle
+    document.querySelectorAll('.chart-toggle-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            const el = e.currentTarget;
+            if (!(el instanceof HTMLElement)) return;
+            const mode = el.getAttribute('data-chart') || 'all';
+            categoryChartMode = mode === 'filtered' ? 'filtered' : 'all';
+            document.querySelectorAll('.chart-toggle-btn').forEach((b) => b.classList.remove('active'));
+            el.classList.add('active');
+            renderCategoryChart();
+        });
+    });
 
     const rankingPanel = document.getElementById('rankingPanel');
     if (rankingPanel) {
@@ -3288,6 +3563,60 @@ function getCategoryTranslation(category) {
     return translations[currentLang]?.[category] || category;
 }
 
+function getCategoryClass(category) {
+    const c = String(category || '').trim();
+    const allowed = new Set(['restaurant', 'cafe', 'hotel', 'tourism', 'drama', 'activity', 'shop', 'nature', 'photo', 'all', 'other']);
+    return allowed.has(c) ? c : 'all';
+}
+
+function getCategoryDisplayLabel(category) {
+    const c = String(category || '').trim();
+    if (c === 'other') {
+        return currentLang === 'ko' ? '기타' : 'Other';
+    }
+    if (c === 'all') {
+        return currentLang === 'ko' ? '전체' : 'All';
+    }
+    return getCategoryTranslation(c);
+}
+
+function getCategoryKeyForStats(place) {
+    const normalized = normalizeCategory(place);
+    if (normalized && normalized !== 'all') return normalized;
+    const raw = String(place?.category ?? '').trim();
+    const allowed = new Set(['restaurant', 'cafe', 'hotel', 'tourism', 'drama', 'activity', 'shop', 'nature', 'photo', 'all']);
+    if (raw && !allowed.has(raw)) return 'other';
+    return null;
+}
+
+function getTopCategoryFromPlaces(places, preferTabs) {
+    const counts = new Map();
+    (Array.isArray(places) ? places : []).forEach((p) => {
+        const cat = getCategoryKeyForStats(p);
+        if (!cat) return;
+        counts.set(cat, (counts.get(cat) || 0) + 1);
+    });
+    const ranked = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    if (!preferTabs) return ranked[0] || 'all';
+    const tabCats = new Set(['restaurant', 'cafe', 'hotel', 'tourism', 'drama', 'activity', 'shop', 'nature', 'photo']);
+    const best = ranked.find((c) => tabCats.has(c));
+    return best || 'all';
+}
+
+function selectCategoryTab(category) {
+    const cat = String(category || 'all');
+    const selector = cat === 'all'
+        ? '.filter-tab[data-category="all"]'
+        : `.sub-tab[data-category="${cat}"], .filter-tab[data-category="${cat}"]`;
+    const el = document.querySelector(selector);
+    if (el instanceof HTMLElement) {
+        el.click();
+        return;
+    }
+    const fallback = document.querySelector('.filter-tab[data-category="all"]');
+    if (fallback instanceof HTMLElement) fallback.click();
+}
+
 // Get type translation
 function getTypeTranslation(type) {
     const typeMap = {
@@ -3359,12 +3688,16 @@ function filterMarkers() {
         updateResultCount();
         // Province summary mode still needs list filtering (especially when coordinates are missing)
         updateRestaurantList();
+        renderCategoryChart();
+        renderFilterSummaryCard();
         return;
     }
 
     if (!useMapMarkers) {
         updateResultCount();
         updateRestaurantList();
+        renderCategoryChart();
+        renderFilterSummaryCard();
         return;
     }
     const filtered = new Set(getFilteredPlaces());
@@ -3380,6 +3713,8 @@ function filterMarkers() {
     
     updateResultCount();
     updateRestaurantList();
+    renderCategoryChart();
+    renderFilterSummaryCard();
 }
 
 function updateResultCount() {
@@ -3511,6 +3846,11 @@ function updateLanguage() {
         // simplest: close it on language change to avoid mixed UI
         try { currencyModal.remove(); } catch { /* ignore */ }
     }
+
+    renderFeaturedRegions();
+    renderDataSummary();
+    renderCategoryChart();
+    renderFilterSummaryCard();
 }
 
 window.addEventListener('app:langChange', () => {
