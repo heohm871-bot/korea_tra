@@ -4461,10 +4461,13 @@ function showPlannerModal() {
             display: flex; justify-content: space-between; align-items: center;
             padding: 15px; background: #f9f9f9; border-radius: 10px; margin-bottom: 10px;
         `;
+        const safeTitle = escapeHtmlAttr(item?.title || '');
+        const safeCity = item?.city ? escapeHtmlAttr(getCityName(item.city)) : '';
+        const safeAddress = escapeHtmlAttr(item?.address || '');
         itemDiv.innerHTML = `
             <div>
-                <strong>${index + 1}. ${item.title || ''}</strong><br>
-                <small style="color: #666;">${item.city ? getCityName(item.city) : ''}${item.city ? ' • ' : ''}${item.address || ''}</small>
+                <strong>${index + 1}. ${safeTitle}</strong><br>
+                <small style="color: #666;">${safeCity}${safeCity ? ' • ' : ''}${safeAddress}</small>
             </div>
             <button onclick="removeFromPlanner(${toOnclickArg(item.key || item.title || '')})" style="
                 background: #ff3b30; color: white; border: none; padding: 8px 12px;

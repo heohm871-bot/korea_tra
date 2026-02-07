@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isNonNegativeInt(value) {
+      return value is int && value >= 0;
+    }
+
+    match /places/{placeId} {
+      allow read: if true;
+      allow create, update: if isSignedIn()
+        && request.resource.data.keys().hasOnly([
+          "placeKey", "updatedAt", "likesCount", "commentsCount", "commentsByDay"
+        ])
+        && request.resource.data.placeKey is string
+        && request.resource.data.placeKey.size() > 0
+        && request.resource.data.placeKey.size() <= 500
+        && (!("placeKey" in resource.data) || request.resource.data.placeKey == resource.data.placeKey)
+        && (!("likesCount" in request.resource.data) || isNonNegativeInt(request.resource.data.likesCount))
+        && (!("commentsCount" in request.resource.data) || isNonNegativeInt(request.resource.data.commentsCount));
+      allow delete: if false;
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn()
+          && request.resource.data.keys().hasOnly(["text", "name", "uid", "createdAt"])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 500
+          && (!("name" in request.resource.data) || (request.resource.data.name is string && request.resource.data.name.size() <= 80));
+        allow update: if false;
+        allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    match /placeLikes/{likeId} {
+      allow get: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(["placeKey", "uid", "createdAt"])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.placeKey is string
+        && request.resource.data.placeKey.size() > 0
+        && likeId.matches(".*__" + request.auth.uid + "$");
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /searchTerms/{termId} {
+      allow read: if true;
+      allow create, update: if isSignedIn()
+        && request.resource.data.keys().hasOnly(["term", "count", "countsByDay", "updatedAt"])
+        && request.resource.data.term is string
+        && request.resource.data.term.size() > 0
+        && request.resource.data.term == request.resource.data.term.lower()
+        && (!("count" in request.resource.data) || isNonNegativeInt(request.resource.data.count));
+      allow delete: if false;
+    }
+
+    match /commentReports/{reportId} {
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(["placeKey", "commentId", "uid", "createdAt"])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.placeKey is string
+        && request.resource.data.commentId is string;
+      allow read, update, delete: if false;
+    }
+  }
+}
