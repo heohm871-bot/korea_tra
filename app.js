@@ -2800,8 +2800,8 @@ async function showPlaceDetail(place, options = {}) {
     const noMapBadge = hasCoords(place) ? '' : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:900;background:#fef2f2;border-radius:999px;padding:6px 10px;color:#991b1b;">지도 표시 불가</span>`;
     const placeKey = getPlaceKey(place);
     const feedbackDomId = buildPlaceFeedbackDomId(placeKey, 'detail');
-    const storyLabel = currentLang === 'ko' ? '스토리' : 'Story';
-    const tipsLabel = currentLang === 'ko' ? '팁 3개' : 'Top 3 Tips';
+    const storyLabel = translations[currentLang]?.storySectionLabel || 'Story';
+    const tipsLabel = translations[currentLang]?.top3TipsLabel || 'Top 3 Tips';
     resultContainer.innerHTML = `
         <div class="place-detail-card" style="
             background: white;
@@ -2987,6 +2987,8 @@ const translations = {
         showToDriver: '기사님께 보여주세요',
         audioGuide: '오디오 가이드',
         currencyCalculator: '환율 계산기',
+        storySectionLabel: '스토리',
+        top3TipsLabel: '팁 3개',
         like: '좋아요',
         comments: '댓글',
         addComment: '댓글 남기기',
@@ -3122,6 +3124,8 @@ const translations = {
         showToDriver: 'Show to driver',
         audioGuide: 'Audio guide',
         currencyCalculator: 'Currency calculator',
+        storySectionLabel: 'Story',
+        top3TipsLabel: 'Top 3 Tips',
         like: 'Like',
         comments: 'Comments',
         addComment: 'Post comment',
@@ -3246,6 +3250,8 @@ const translations = {
         showToDriver: '運転手に見せる',
         audioGuide: 'オーディオガイド',
         currencyCalculator: '為替計算機',
+        storySectionLabel: 'ストーリー',
+        top3TipsLabel: 'トップ3のヒント',
         like: 'いいね',
         comments: 'コメント',
         addComment: 'コメントする',
@@ -3370,6 +3376,8 @@ const translations = {
         showToDriver: '给司机看',
         audioGuide: '语音导览',
         currencyCalculator: '汇率计算器',
+        storySectionLabel: '故事',
+        top3TipsLabel: '三条贴士',
         like: '点赞',
         comments: '评论',
         addComment: '发表评论',
@@ -3494,6 +3502,8 @@ const translations = {
         showToDriver: 'แสดงให้คนขับดู',
         audioGuide: 'ไกด์เสียง',
         currencyCalculator: 'เครื่องคำนวณอัตราแลกเปลี่ยน',
+        storySectionLabel: 'เรื่องราว',
+        top3TipsLabel: 'เคล็ดลับ 3 ข้อ',
         like: 'ถูกใจ',
         comments: 'ความคิดเห็น',
         addComment: 'ส่งความคิดเห็น',
@@ -3618,6 +3628,8 @@ const translations = {
         showToDriver: 'اعرضه للسائق',
         audioGuide: 'دليل صوتي',
         currencyCalculator: 'حاسبة العملات',
+        storySectionLabel: 'القصة',
+        top3TipsLabel: 'أفضل 3 نصائح',
         like: 'إعجاب',
         comments: 'التعليقات',
         addComment: 'إضافة تعليق',
@@ -3743,6 +3755,8 @@ const translations = {
         showToDriver: 'Montrer au chauffeur',
         audioGuide: 'Guide audio',
         currencyCalculator: 'Calculateur de devises',
+        storySectionLabel: 'Histoire',
+        top3TipsLabel: 'Top 3 conseils',
         like: 'J’aime',
         comments: 'Commentaires',
         addComment: 'Publier un commentaire',
@@ -3857,6 +3871,8 @@ const translations = {
         showToDriver: 'Показать водителю',
         audioGuide: 'Аудиогид',
         currencyCalculator: 'Конвертер валют',
+        storySectionLabel: 'История',
+        top3TipsLabel: 'Топ-3 совета',
         like: 'Нравится',
         comments: 'Комментарии',
         addComment: 'Оставить комментарий',
