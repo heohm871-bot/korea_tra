@@ -18,3 +18,9 @@
 
 ## i18n QA
 - Manual checklist: `docs/i18n-test-checklist.md`
+
+## Firestore i18n migration
+- Script: `npm run migrate:card-content-v2`
+- Dry-run: `node scripts/migrate-card-content-v2.js --dry-run`
+- Optional limit: `node scripts/migrate-card-content-v2.js --dry-run --limit=100`
+- Requires Firebase Admin credentials (`GOOGLE_APPLICATION_CREDENTIALS`) with Firestore access.

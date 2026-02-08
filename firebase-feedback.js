@@ -115,6 +115,82 @@ if (!isConfigReady) {
         return raw;
     };
 
+    const buildLocaleCandidates = (lang) => {
+        const raw = String(lang || '').trim();
+        const lower = raw.toLowerCase();
+        const list = [];
+        const push = (v) => {
+            const s = String(v || '').trim();
+            if (!s || list.includes(s)) return;
+            list.push(s);
+        };
+        push(raw);
+        push(lower);
+        if (lower === 'jp' || lower === 'ja') {
+            push('jp');
+            push('ja');
+        }
+        if (lower === 'cn' || lower === 'zh-cn' || lower === 'zh') {
+            push('cn');
+            push('zh-CN');
+            push('zh-cn');
+            push('zh');
+        }
+        push('en');
+        push('ko');
+        return list;
+    };
+
+    const pickLocalizedValue = (mapObj, lang) => {
+        if (!mapObj || typeof mapObj !== 'object' || Array.isArray(mapObj)) return null;
+        const entries = Object.entries(mapObj);
+        if (!entries.length) return null;
+        const lowered = new Map(entries.map(([k, v]) => [String(k).toLowerCase(), v]));
+        for (const key of buildLocaleCandidates(lang)) {
+            if (Object.prototype.hasOwnProperty.call(mapObj, key)) return mapObj[key];
+            const hit = lowered.get(String(key).toLowerCase());
+            if (typeof hit !== 'undefined') return hit;
+        }
+        return entries[0][1] ?? null;
+    };
+
+    const normalizeTips = (tips) => {
+        const out = Array.isArray(tips) ? tips.map((x) => String(x || '').trim()) : [];
+        while (out.length < 3) out.push('');
+        return out.slice(0, 3);
+    };
+
+    const buildLegacyLocalizedFromV2 = (docData, targetLanguage) => {
+        const v2 = docData?.cardContentV2;
+        if (!v2 || typeof v2 !== 'object') return null;
+
+        const storyRaw = pickLocalizedValue(v2.story, targetLanguage);
+        const tipsRaw = pickLocalizedValue(v2.tips, targetLanguage);
+        const tagIds = Array.isArray(v2.tags) ? v2.tags.slice(0, 6).map((x) => String(x || '').trim()).filter(Boolean) : [];
+        const tagLabels = v2.tagLabels && typeof v2.tagLabels === 'object' ? v2.tagLabels : {};
+        const tags = tagIds.map((id) => {
+            if (!id.startsWith('custom_')) return id;
+            const byLocale = tagLabels[id];
+            const picked = pickLocalizedValue(byLocale, targetLanguage);
+            return String(picked || id).trim();
+        });
+        const storyText = typeof storyRaw === 'string' ? storyRaw.trim() : '';
+        const tips = normalizeTips(Array.isArray(tipsRaw) ? tipsRaw : []);
+        const title = String(docData?.title || '').trim();
+        const category = String(docData?.category || '').trim();
+        const firstLine = storyText.split(/\n|\.|!/).map((x) => String(x || '').trim()).find(Boolean) || '';
+
+        return {
+            language: normalizeTargetLanguage(targetLanguage),
+            title,
+            storyTitle: firstLine || title,
+            storyBody: storyText || '',
+            tips,
+            tags,
+            categoryLabel: category
+        };
+    };
+
     const fetchComments = async (placeKey, uid) => {
         const q = query(getCommentsRef(placeKey), orderBy("createdAt", "desc"), limit(20));
         const snap = await getDocs(q);
@@ -279,6 +355,8 @@ if (!isConfigReady) {
 
         const snap = await getDoc(placeRef);
         const data = snap.exists() ? snap.data() : {};
+        const fromV2 = buildLegacyLocalizedFromV2(data, normalizedTarget);
+        if (fromV2 && !force) return fromV2;
         const fromDoc = data?.cardContent?.[normalizedTarget] || null;
         if (fromDoc && !force) return fromDoc;
 

@@ -4,6 +4,8 @@
  */
 
 let currentLang = 'ko';
+const SUPPORTED_LOCALES = ['ko', 'en', 'jp', 'cn', 'th', 'ar', 'ru', 'fr'];
+const LOCALE_PREFIX = { ko: 'KO', en: 'EN', jp: 'JP', cn: 'CN', th: 'TH', ar: 'AR', ru: 'RU', fr: 'FR' };
 let map = null;
 let markers = [];
 let currentFilter = 'all';
@@ -318,9 +320,7 @@ function getCategoryLabel(place) {
 function normalizeLang(lang) {
     if (!lang) return 'ko';
     const l = String(lang).toLowerCase();
-    // Supported language keys are strictly:
-    // ko, en, jp, cn, th, ar, ru, fr
-    const allowed = new Set(['ko', 'en', 'jp', 'cn', 'th', 'ar', 'ru', 'fr']);
+    const allowed = new Set(SUPPORTED_LOCALES);
     if (allowed.has(l)) return l;
     return 'ko';
 }
@@ -335,6 +335,10 @@ function getTranslationByLang(lang, key, fallback = '') {
 
 function getCurrentTranslation(key, fallback = '') {
     return getTranslationByLang(currentLang, key, fallback);
+}
+
+function getLocalePrefix(lang) {
+    return LOCALE_PREFIX[normalizeLang(lang)] || String(lang || 'XX').toUpperCase();
 }
 
 function getCardContentLanguageCandidates(lang) {
@@ -369,13 +373,14 @@ function getCardContentLanguageCandidates(lang) {
 function findObjectValueByLanguage(source, lang) {
     if (!source || typeof source !== 'object' || Array.isArray(source)) return undefined;
     const entries = Object.entries(source);
+    if (!entries.length) return undefined;
     const lowered = new Map(entries.map(([k, v]) => [String(k).toLowerCase(), v]));
     for (const key of getCardContentLanguageCandidates(lang)) {
         if (key in source) return source[key];
         const lower = lowered.get(String(key).toLowerCase());
         if (typeof lower !== 'undefined') return lower;
     }
-    return undefined;
+    return entries[0][1];
 }
 
 function resolveLocalizedString(source, lang, fallback = '') {
@@ -410,6 +415,13 @@ function resolveLocalizedArray(source, lang, limit = 3, fallbackItems = []) {
         return seeded;
     }
     return out;
+}
+
+function hasLocaleSpecificValue(source, lang) {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return false;
+    const lowered = new Set(Object.keys(source).map((k) => String(k).toLowerCase()));
+    const candidates = getCardContentLanguageCandidates(lang).map((k) => String(k).toLowerCase());
+    return candidates.some((k) => lowered.has(k));
 }
 
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -690,11 +702,14 @@ function generateTags(place, lang = currentLang) {
 
 function generateStory(place, lang = currentLang) {
     const baseDesc = getLocalizedPlaceDescription(place, lang);
+    const hasLocaleDesc = hasLocaleSpecificValue(place?.description, lang);
+    const shouldPrefixFallback = normalizeLang(lang) !== 'ko' && !hasLocaleDesc;
+    const baseDescForLocale = shouldPrefixFallback && baseDesc ? `[${getLocalePrefix(lang)}] ${baseDesc}` : baseDesc;
     const tips = fillTipsWithFallback([], lang);
-    if (baseDesc) {
+    if (baseDescForLocale) {
         return {
-            hook: baseDesc.split(/\n|\.|\!/)[0].trim().slice(0, 120) || String(place?.title || '').trim(),
-            background: baseDesc.slice(0, 240),
+            hook: baseDescForLocale.split(/\n|\.|\!/)[0].trim().slice(0, 120) || String(place?.title || '').trim(),
+            background: baseDescForLocale.slice(0, 240),
             tips,
             moments: generateTags(place, lang).slice(0, 3)
         };
@@ -756,11 +771,30 @@ function normalizeCardContentSchema(raw, targetLanguage, place) {
     if (!raw || typeof raw !== 'object') return null;
     const normalizedLanguage = normalizeCardContentLanguage(raw.language || targetLanguage);
     const fallback = buildFallbackCardContent(place, targetLanguage);
+    const rawStoryTitleSource = raw.storyTitle || raw.hook || raw.story;
+    const rawStoryBodySource = raw.storyBody || raw.background || raw.story;
+    const rawTipsSource = raw.tips;
+    const rawTagsSource = raw.tags;
+    const hasLocaleStory = hasLocaleSpecificValue(rawStoryBodySource, targetLanguage) || hasLocaleSpecificValue(rawStoryTitleSource, targetLanguage);
+    const hasLocaleTips = hasLocaleSpecificValue(rawTipsSource, targetLanguage);
+    const localePrefix = `[${getLocalePrefix(targetLanguage)}] `;
     const resolvedTitle = resolveLocalizedString(raw.title, targetLanguage, String(place?.title || '').trim());
-    const resolvedStoryTitle = resolveLocalizedString(raw.storyTitle || raw.hook, targetLanguage, fallback.storyTitle);
-    const resolvedStoryBody = resolveLocalizedString(raw.storyBody || raw.background, targetLanguage, fallback.storyBody);
-    const resolvedTips = fillTipsWithFallback(resolveLocalizedArray(raw.tips, targetLanguage, 3, fallback.tips), targetLanguage);
-    const resolvedTags = resolveLocalizedArray(raw.tags, targetLanguage, 3, fallback.tags).map((x) => normalizeTagText(x, targetLanguage));
+    const resolvedStoryTitleRaw = resolveLocalizedString(rawStoryTitleSource, targetLanguage, fallback.storyTitle);
+    const resolvedStoryBodyRaw = resolveLocalizedString(rawStoryBodySource, targetLanguage, fallback.storyBody);
+    const resolvedTipsRaw = fillTipsWithFallback(resolveLocalizedArray(rawTipsSource, targetLanguage, 3, fallback.tips), targetLanguage);
+    const shouldPrefix = normalizeLang(targetLanguage) !== 'ko';
+    const resolvedStoryTitle = shouldPrefix && !hasLocaleStory && resolvedStoryTitleRaw && !resolvedStoryTitleRaw.startsWith('[')
+        ? `${localePrefix}${resolvedStoryTitleRaw}`
+        : resolvedStoryTitleRaw;
+    const resolvedStoryBody = shouldPrefix && !hasLocaleStory && resolvedStoryBodyRaw && !resolvedStoryBodyRaw.startsWith('[')
+        ? `${localePrefix}${resolvedStoryBodyRaw}`
+        : resolvedStoryBodyRaw;
+    const resolvedTips = resolvedTipsRaw.map((tip) => {
+        if (!shouldPrefix || hasLocaleTips || !tip) return tip;
+        if (String(tip).startsWith('[')) return tip;
+        return `${localePrefix}${tip}`;
+    });
+    const resolvedTags = resolveLocalizedArray(rawTagsSource, targetLanguage, 3, fallback.tags).map((x) => normalizeTagText(x, targetLanguage));
     const resolvedCategoryLabel = resolveLocalizedString(
         raw.categoryLabel,
         targetLanguage,
@@ -778,8 +812,8 @@ function normalizeCardContentSchema(raw, targetLanguage, place) {
 
     while (out.tips.length < 3) out.tips.push('');
     while (out.tags.length < 3) out.tags.push('');
-    out.storyTitle = out.storyTitle || fallback.storyTitle;
-    out.storyBody = out.storyBody || fallback.storyBody;
+    out.storyTitle = out.storyTitle || fallback.storyTitle || getTranslationByLang(targetLanguage, 'storyEmpty', 'No story available.');
+    out.storyBody = out.storyBody || fallback.storyBody || getTranslationByLang(targetLanguage, 'storyEmpty', 'No story available.');
     out.tips = out.tips.every((x) => !x) ? fallback.tips : fillTipsWithFallback(out.tips, targetLanguage);
     out.tags = out.tags.every((x) => !x) ? fallback.tags : out.tags.map((x) => normalizeTagText(x, targetLanguage));
     if (!out.categoryLabel) {
@@ -2943,7 +2977,7 @@ async function showPlaceDetail(place, options = {}) {
     const story = {
         hook: String(localized?.storyTitle || '').trim(),
         background: String(localized?.storyBody || '').trim(),
-        tips: Array.isArray(localized?.tips) ? localized.tips : ['', '', '']
+        tips: fillTipsWithFallback(Array.isArray(localized?.tips) ? localized.tips : ['', '', ''], currentLang)
     };
     const tags = Array.isArray(localized?.tags) && localized.tags.length
         ? localized.tags.map((x) => normalizeTagText(x, currentLang)).filter(Boolean)
@@ -2957,6 +2991,7 @@ async function showPlaceDetail(place, options = {}) {
     const feedbackDomId = buildPlaceFeedbackDomId(placeKey, 'detail');
     const storyLabel = translations[currentLang]?.storySectionLabel || 'Story';
     const tipsLabel = translations[currentLang]?.top3TipsLabel || 'Top 3 Tips';
+    const storyEmptyLabel = translations[currentLang]?.storyEmpty || 'No story available.';
     resultContainer.innerHTML = `
         <div class="place-detail-card" style="
             background: white;
@@ -2983,8 +3018,8 @@ async function showPlaceDetail(place, options = {}) {
 
             <div style="margin-top: 16px; padding: 14px 14px; border: 1px solid #eee; border-radius: 12px; background: #fafafa;">
                 <div style="font-weight: 900; color:#111827; margin-bottom: 8px;">${escapeHtmlAttr(storyLabel)}</div>
-                <div style="font-size: 14px; font-weight: 900; color:#111827; margin-bottom: 6px;">${escapeHtmlAttr(story.hook || '')}</div>
-                <div style="font-size: 13px; color:#374151; line-height: 1.6; white-space: pre-line;">${escapeHtmlAttr(story.background || '')}</div>
+                <div style="font-size: 14px; font-weight: 900; color:#111827; margin-bottom: 6px;">${escapeHtmlAttr(story.hook || storyEmptyLabel)}</div>
+                <div style="font-size: 13px; color:#374151; line-height: 1.6; white-space: pre-line;">${escapeHtmlAttr(story.background || storyEmptyLabel)}</div>
                 <div style="margin-top: 10px; font-size: 13px; color:#111827;">
                     <div style="font-weight: 900; margin-bottom: 6px;">${escapeHtmlAttr(tipsLabel)}</div>
                     <div style="display:grid; gap:6px;">
@@ -3145,6 +3180,7 @@ const translations = {
         currencyCalculator: '환율 계산기',
         storySectionLabel: '스토리',
         top3TipsLabel: '팁 3개',
+        storyEmpty: '스토리 정보가 없습니다.',
         mapUnavailable: '지도 표시 불가',
         noDescriptionAvailable: '설명 정보가 아직 없습니다.',
         storyTipCheckHours: '방문 전 운영시간/휴무를 확인하세요.',
@@ -3312,6 +3348,7 @@ const translations = {
         currencyCalculator: 'Currency calculator',
         storySectionLabel: 'Story',
         top3TipsLabel: 'Top 3 Tips',
+        storyEmpty: 'No story available.',
         mapUnavailable: 'Map unavailable',
         noDescriptionAvailable: 'No description available.',
         storyTipCheckHours: 'Check opening hours before you visit.',
@@ -3468,6 +3505,35 @@ const translations = {
         currencyCalculator: '為替計算機',
         storySectionLabel: 'ストーリー',
         top3TipsLabel: 'トップ3のヒント',
+        storyEmpty: '[JP] Story is not available.',
+        mapUnavailable: '[JP] Map unavailable',
+        storyTipCheckHours: '[JP] Check opening hours before you visit.',
+        storyTipAvoidPeak: '[JP] Avoid peak times for a more comfortable visit.',
+        storyTipCheckRoute: '[JP] Check nearby route options (cafe/walk/parking).',
+        storyFallbackHookTemplate: '[JP] Plan today\'s route around {title}.',
+        storyFallbackBodyWithAddress: '[JP] {title} is located at {address} in the {categoryLabel} category.',
+        storyFallbackBodyNoAddress: '[JP] {title} is in the {categoryLabel} category.',
+        storyFallbackPlace: '[JP] this place',
+        storyFallbackCategory: '[JP] recommended place',
+        tag_cafe: '[JP] cafe',
+        tag_dessert: '[JP] dessert',
+        tag_delicious: '[JP] delicious',
+        tag_meal: '[JP] meal',
+        tag_travel: '[JP] travel',
+        tag_photospot: '[JP] photospot',
+        tag_walk: '[JP] walk',
+        tag_healing: '[JP] healing',
+        tag_shopping: '[JP] shopping',
+        tag_souvenir: '[JP] souvenir',
+        tag_local: '[JP] local',
+        tag_hotplace: '[JP] hotplace',
+        tag_sea: '[JP] sea',
+        tag_nightview: '[JP] nightview',
+        tag_traditionalmarket: '[JP] traditionalmarket',
+        tag_date: '[JP] date',
+        tag_rainyday: '[JP] rainyday',
+        tag_withkids: '[JP] withkids',
+        tag_solotrip: '[JP] solotrip',
         like: 'いいね',
         comments: 'コメント',
         addComment: 'コメントする',
@@ -3595,6 +3661,35 @@ const translations = {
         currencyCalculator: '汇率计算器',
         storySectionLabel: '故事',
         top3TipsLabel: '三条贴士',
+        storyEmpty: '[CN] Story is not available.',
+        mapUnavailable: '[CN] Map unavailable',
+        storyTipCheckHours: '[CN] Check opening hours before you visit.',
+        storyTipAvoidPeak: '[CN] Avoid peak times for a more comfortable visit.',
+        storyTipCheckRoute: '[CN] Check nearby route options (cafe/walk/parking).',
+        storyFallbackHookTemplate: '[CN] Plan today\'s route around {title}.',
+        storyFallbackBodyWithAddress: '[CN] {title} is located at {address} in the {categoryLabel} category.',
+        storyFallbackBodyNoAddress: '[CN] {title} is in the {categoryLabel} category.',
+        storyFallbackPlace: '[CN] this place',
+        storyFallbackCategory: '[CN] recommended place',
+        tag_cafe: '[CN] cafe',
+        tag_dessert: '[CN] dessert',
+        tag_delicious: '[CN] delicious',
+        tag_meal: '[CN] meal',
+        tag_travel: '[CN] travel',
+        tag_photospot: '[CN] photospot',
+        tag_walk: '[CN] walk',
+        tag_healing: '[CN] healing',
+        tag_shopping: '[CN] shopping',
+        tag_souvenir: '[CN] souvenir',
+        tag_local: '[CN] local',
+        tag_hotplace: '[CN] hotplace',
+        tag_sea: '[CN] sea',
+        tag_nightview: '[CN] nightview',
+        tag_traditionalmarket: '[CN] traditionalmarket',
+        tag_date: '[CN] date',
+        tag_rainyday: '[CN] rainyday',
+        tag_withkids: '[CN] withkids',
+        tag_solotrip: '[CN] solotrip',
         like: '点赞',
         comments: '评论',
         addComment: '发表评论',
@@ -3722,6 +3817,35 @@ const translations = {
         currencyCalculator: 'เครื่องคำนวณอัตราแลกเปลี่ยน',
         storySectionLabel: 'เรื่องราว',
         top3TipsLabel: 'เคล็ดลับ 3 ข้อ',
+        storyEmpty: '[TH] Story is not available.',
+        mapUnavailable: '[TH] Map unavailable',
+        storyTipCheckHours: '[TH] Check opening hours before you visit.',
+        storyTipAvoidPeak: '[TH] Avoid peak times for a more comfortable visit.',
+        storyTipCheckRoute: '[TH] Check nearby route options (cafe/walk/parking).',
+        storyFallbackHookTemplate: '[TH] Plan today\'s route around {title}.',
+        storyFallbackBodyWithAddress: '[TH] {title} is located at {address} in the {categoryLabel} category.',
+        storyFallbackBodyNoAddress: '[TH] {title} is in the {categoryLabel} category.',
+        storyFallbackPlace: '[TH] this place',
+        storyFallbackCategory: '[TH] recommended place',
+        tag_cafe: '[TH] cafe',
+        tag_dessert: '[TH] dessert',
+        tag_delicious: '[TH] delicious',
+        tag_meal: '[TH] meal',
+        tag_travel: '[TH] travel',
+        tag_photospot: '[TH] photospot',
+        tag_walk: '[TH] walk',
+        tag_healing: '[TH] healing',
+        tag_shopping: '[TH] shopping',
+        tag_souvenir: '[TH] souvenir',
+        tag_local: '[TH] local',
+        tag_hotplace: '[TH] hotplace',
+        tag_sea: '[TH] sea',
+        tag_nightview: '[TH] nightview',
+        tag_traditionalmarket: '[TH] traditionalmarket',
+        tag_date: '[TH] date',
+        tag_rainyday: '[TH] rainyday',
+        tag_withkids: '[TH] withkids',
+        tag_solotrip: '[TH] solotrip',
         like: 'ถูกใจ',
         comments: 'ความคิดเห็น',
         addComment: 'ส่งความคิดเห็น',
@@ -3849,6 +3973,35 @@ const translations = {
         currencyCalculator: 'حاسبة العملات',
         storySectionLabel: 'القصة',
         top3TipsLabel: 'أفضل 3 نصائح',
+        storyEmpty: '[AR] Story is not available.',
+        mapUnavailable: '[AR] Map unavailable',
+        storyTipCheckHours: '[AR] Check opening hours before you visit.',
+        storyTipAvoidPeak: '[AR] Avoid peak times for a more comfortable visit.',
+        storyTipCheckRoute: '[AR] Check nearby route options (cafe/walk/parking).',
+        storyFallbackHookTemplate: '[AR] Plan today\'s route around {title}.',
+        storyFallbackBodyWithAddress: '[AR] {title} is located at {address} in the {categoryLabel} category.',
+        storyFallbackBodyNoAddress: '[AR] {title} is in the {categoryLabel} category.',
+        storyFallbackPlace: '[AR] this place',
+        storyFallbackCategory: '[AR] recommended place',
+        tag_cafe: '[AR] cafe',
+        tag_dessert: '[AR] dessert',
+        tag_delicious: '[AR] delicious',
+        tag_meal: '[AR] meal',
+        tag_travel: '[AR] travel',
+        tag_photospot: '[AR] photospot',
+        tag_walk: '[AR] walk',
+        tag_healing: '[AR] healing',
+        tag_shopping: '[AR] shopping',
+        tag_souvenir: '[AR] souvenir',
+        tag_local: '[AR] local',
+        tag_hotplace: '[AR] hotplace',
+        tag_sea: '[AR] sea',
+        tag_nightview: '[AR] nightview',
+        tag_traditionalmarket: '[AR] traditionalmarket',
+        tag_date: '[AR] date',
+        tag_rainyday: '[AR] rainyday',
+        tag_withkids: '[AR] withkids',
+        tag_solotrip: '[AR] solotrip',
         like: 'إعجاب',
         comments: 'التعليقات',
         addComment: 'إضافة تعليق',
@@ -3977,6 +4130,35 @@ const translations = {
         currencyCalculator: 'Calculateur de devises',
         storySectionLabel: 'Histoire',
         top3TipsLabel: 'Top 3 conseils',
+        storyEmpty: '[FR] Story is not available.',
+        mapUnavailable: '[FR] Map unavailable',
+        storyTipCheckHours: '[FR] Check opening hours before you visit.',
+        storyTipAvoidPeak: '[FR] Avoid peak times for a more comfortable visit.',
+        storyTipCheckRoute: '[FR] Check nearby route options (cafe/walk/parking).',
+        storyFallbackHookTemplate: '[FR] Plan today\'s route around {title}.',
+        storyFallbackBodyWithAddress: '[FR] {title} is located at {address} in the {categoryLabel} category.',
+        storyFallbackBodyNoAddress: '[FR] {title} is in the {categoryLabel} category.',
+        storyFallbackPlace: '[FR] this place',
+        storyFallbackCategory: '[FR] recommended place',
+        tag_cafe: '[FR] cafe',
+        tag_dessert: '[FR] dessert',
+        tag_delicious: '[FR] delicious',
+        tag_meal: '[FR] meal',
+        tag_travel: '[FR] travel',
+        tag_photospot: '[FR] photospot',
+        tag_walk: '[FR] walk',
+        tag_healing: '[FR] healing',
+        tag_shopping: '[FR] shopping',
+        tag_souvenir: '[FR] souvenir',
+        tag_local: '[FR] local',
+        tag_hotplace: '[FR] hotplace',
+        tag_sea: '[FR] sea',
+        tag_nightview: '[FR] nightview',
+        tag_traditionalmarket: '[FR] traditionalmarket',
+        tag_date: '[FR] date',
+        tag_rainyday: '[FR] rainyday',
+        tag_withkids: '[FR] withkids',
+        tag_solotrip: '[FR] solotrip',
         like: 'J’aime',
         comments: 'Commentaires',
         addComment: 'Publier un commentaire',
@@ -4094,6 +4276,35 @@ const translations = {
         currencyCalculator: 'Конвертер валют',
         storySectionLabel: 'История',
         top3TipsLabel: 'Топ-3 совета',
+        storyEmpty: '[RU] Story is not available.',
+        mapUnavailable: '[RU] Map unavailable',
+        storyTipCheckHours: '[RU] Check opening hours before you visit.',
+        storyTipAvoidPeak: '[RU] Avoid peak times for a more comfortable visit.',
+        storyTipCheckRoute: '[RU] Check nearby route options (cafe/walk/parking).',
+        storyFallbackHookTemplate: '[RU] Plan today\'s route around {title}.',
+        storyFallbackBodyWithAddress: '[RU] {title} is located at {address} in the {categoryLabel} category.',
+        storyFallbackBodyNoAddress: '[RU] {title} is in the {categoryLabel} category.',
+        storyFallbackPlace: '[RU] this place',
+        storyFallbackCategory: '[RU] recommended place',
+        tag_cafe: '[RU] cafe',
+        tag_dessert: '[RU] dessert',
+        tag_delicious: '[RU] delicious',
+        tag_meal: '[RU] meal',
+        tag_travel: '[RU] travel',
+        tag_photospot: '[RU] photospot',
+        tag_walk: '[RU] walk',
+        tag_healing: '[RU] healing',
+        tag_shopping: '[RU] shopping',
+        tag_souvenir: '[RU] souvenir',
+        tag_local: '[RU] local',
+        tag_hotplace: '[RU] hotplace',
+        tag_sea: '[RU] sea',
+        tag_nightview: '[RU] nightview',
+        tag_traditionalmarket: '[RU] traditionalmarket',
+        tag_date: '[RU] date',
+        tag_rainyday: '[RU] rainyday',
+        tag_withkids: '[RU] withkids',
+        tag_solotrip: '[RU] solotrip',
         like: 'Нравится',
         comments: 'Комментарии',
         addComment: 'Оставить комментарий',
@@ -4511,6 +4722,10 @@ function updateLanguage() {
     renderDataSummary();
     renderCategoryChart();
     renderFilterSummaryCard();
+
+    if (typeof filterMarkers === 'function' && Array.isArray(placeData) && placeData.length > 0) {
+        filterMarkers();
+    }
 
     if (currentDetailPlace) {
         showPlaceDetail(currentDetailPlace);
