@@ -5,6 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "npx serve .",
+    "build:runtime-config": "node scripts/generate-firebase-runtime-config.js",
+    "build:pages": "npm run build:runtime-config",
     "build:seo": "node scripts/generate-static-seo-pages.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

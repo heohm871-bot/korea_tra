@@ -34,6 +34,7 @@ const PLANNER_ORIGIN_STORAGE_KEY = 'k-local-vibe-planner-origin';
 const PLACE_COMMENT_MAX_LENGTH = 200;
 const PLACE_COMMENT_VISIBLE_LIMIT = 20;
 const ADSENSE_CLIENT_ID = 'ca-pub-9451611288918928';
+const LANGUAGE_STORAGE_KEY = 'kspotlight.lang.v1';
 let adsenseLoadAttempted = false;
 let categoryChartMode = 'all'; // 'all' | 'filtered'
 
@@ -324,6 +325,93 @@ function normalizeLang(lang) {
     return 'ko';
 }
 
+function getTranslationByLang(lang, key, fallback = '') {
+    const uiLang = normalizeLang(lang);
+    if (translations?.[uiLang]?.[key]) return translations[uiLang][key];
+    if (translations?.en?.[key]) return translations.en[key];
+    if (translations?.ko?.[key]) return translations.ko[key];
+    return fallback;
+}
+
+function getCurrentTranslation(key, fallback = '') {
+    return getTranslationByLang(currentLang, key, fallback);
+}
+
+function getCardContentLanguageCandidates(lang) {
+    const uiLang = normalizeLang(lang);
+    const apiLang = normalizeCardContentLanguage(lang);
+    const candidates = [];
+    const push = (v) => {
+        const s = String(v || '').trim();
+        if (!s || candidates.includes(s)) return;
+        candidates.push(s);
+    };
+
+    push(uiLang);
+    push(apiLang);
+
+    if (uiLang === 'jp' || apiLang === 'ja') {
+        push('ja');
+        push('jp');
+    }
+    if (uiLang === 'cn' || apiLang === 'zh-CN' || apiLang === 'zh') {
+        push('zh-CN');
+        push('zh-cn');
+        push('zh');
+        push('cn');
+    }
+
+    push('en');
+    push('ko');
+    return candidates;
+}
+
+function findObjectValueByLanguage(source, lang) {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return undefined;
+    const entries = Object.entries(source);
+    const lowered = new Map(entries.map(([k, v]) => [String(k).toLowerCase(), v]));
+    for (const key of getCardContentLanguageCandidates(lang)) {
+        if (key in source) return source[key];
+        const lower = lowered.get(String(key).toLowerCase());
+        if (typeof lower !== 'undefined') return lower;
+    }
+    return undefined;
+}
+
+function resolveLocalizedString(source, lang, fallback = '') {
+    if (typeof source === 'string') {
+        const direct = source.trim();
+        return direct || fallback;
+    }
+    if (source && typeof source === 'object' && !Array.isArray(source)) {
+        const byLang = findObjectValueByLanguage(source, lang);
+        if (typeof byLang === 'string' && byLang.trim()) return byLang.trim();
+        if (typeof byLang === 'number') return String(byLang);
+    }
+    return fallback;
+}
+
+function resolveLocalizedArray(source, lang, limit = 3, fallbackItems = []) {
+    let raw = [];
+    if (Array.isArray(source)) {
+        raw = source;
+    } else if (source && typeof source === 'object') {
+        const byLang = findObjectValueByLanguage(source, lang);
+        if (Array.isArray(byLang)) raw = byLang;
+        else if (typeof byLang === 'string' && byLang.trim()) raw = [byLang.trim()];
+    }
+
+    const out = raw.map((x) => String(x || '').trim()).filter(Boolean).slice(0, limit);
+    while (out.length < limit) out.push('');
+
+    if (out.every((x) => !x) && Array.isArray(fallbackItems) && fallbackItems.length) {
+        const seeded = fallbackItems.map((x) => String(x || '').trim()).filter(Boolean).slice(0, limit);
+        while (seeded.length < limit) seeded.push('');
+        return seeded;
+    }
+    return out;
+}
+
 function haversineKm(lat1, lon1, lat2, lon2) {
     const R = 6371;
     const toRad = (d) => (d * Math.PI) / 180;
@@ -531,61 +619,103 @@ function renderTopRegionsSummary(places, title) {
 </div>`;
 }
 
-function generateTags(place) {
-    const tags = [];
+function fillTipsWithFallback(tips, lang) {
+    const normalized = Array.isArray(tips) ? tips.map((x) => String(x || '').trim()) : [];
+    const defaults = [
+        getTranslationByLang(lang, 'storyTipCheckHours', 'Check opening hours before you go.'),
+        getTranslationByLang(lang, 'storyTipAvoidPeak', 'Avoid peak hours for a more comfortable visit.'),
+        getTranslationByLang(lang, 'storyTipCheckRoute', 'Check nearby route options before visiting.')
+    ];
+    while (normalized.length < 3) normalized.push('');
+    return normalized.slice(0, 3).map((x, idx) => x || defaults[idx]);
+}
+
+function getCategoryTranslationByLang(category, lang) {
+    const key = String(category || '').trim();
+    return getTranslationByLang(lang, key, key || 'all');
+}
+
+function getLocalizedPlaceDescription(place, lang) {
+    const fallback = resolveLocalizedString(place?.description, 'ko', '');
+    return resolveLocalizedString(place?.description, lang, fallback);
+}
+
+function buildTagLabel(tagKey, lang) {
+    const raw = String(tagKey || '').trim();
+    if (!raw) return '';
+    const translated = getTranslationByLang(lang, `tag_${raw}`, raw);
+    const noHash = String(translated || raw).replace(/^#/, '').trim();
+    return noHash ? `#${noHash}` : '';
+}
+
+function normalizeTagText(tag, lang) {
+    const raw = String(tag || '').trim();
+    if (!raw) return '';
+    const key = raw.replace(/^#/, '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const fromKey = key ? getTranslationByLang(lang, `tag_${key}`, '') : '';
+    if (fromKey) return `#${String(fromKey).replace(/^#/, '').trim()}`;
+    return raw.startsWith('#') ? raw : `#${raw}`;
+}
+
+function generateTagKeys(place) {
+    const keys = [];
     const cat = normalizeCategory(place);
     const type = String(place?.type ?? '').trim();
     const title = String(place?.title ?? '').toLowerCase();
 
-    if (cat === 'cafe') tags.push('#카페', '#디저트');
-    if (cat === 'restaurant') tags.push('#맛집', '#식사');
-    if (cat === 'tourism' || cat === 'drama') tags.push('#여행', '#인생샷');
-    if (cat === 'nature') tags.push('#산책', '#힐링');
-    if (cat === 'shop') tags.push('#쇼핑', '#기념품');
+    if (cat === 'cafe') keys.push('cafe', 'dessert');
+    if (cat === 'restaurant') keys.push('delicious', 'meal');
+    if (cat === 'tourism' || cat === 'drama') keys.push('travel', 'photoSpot');
+    if (cat === 'nature') keys.push('walk', 'healing');
+    if (cat === 'shop') keys.push('shopping', 'souvenir');
 
-    if (type.includes('현지인')) tags.push('#로컬');
-    if (type.includes('외지인')) tags.push('#핫플');
+    if (type.includes('현지인')) keys.push('local');
+    if (type.includes('외지인')) keys.push('hotPlace');
 
-    if (title.includes('바다') || title.includes('해변')) tags.push('#바다');
-    if (title.includes('야경')) tags.push('#야경');
-    if (title.includes('시장')) tags.push('#전통시장');
+    if (title.includes('바다') || title.includes('해변')) keys.push('sea');
+    if (title.includes('야경')) keys.push('nightView');
+    if (title.includes('시장')) keys.push('traditionalMarket');
 
-    // ensure at least 3, dedupe
-    const uniq = Array.from(new Set(tags));
-    while (uniq.length < 3) {
-        uniq.push(['#데이트', '#비오는날', '#아이와함께', '#혼자여행'][uniq.length % 4]);
-    }
+    const uniq = Array.from(new Set(keys));
+    const fallback = ['date', 'rainyDay', 'withKids', 'soloTrip'];
+    while (uniq.length < 3) uniq.push(fallback[uniq.length % fallback.length]);
     return uniq.slice(0, 6);
 }
 
-function generateStory(place) {
-    const baseDesc = String(place?.description?.ko ?? place?.description ?? '').trim();
+function generateTags(place, lang = currentLang) {
+    return generateTagKeys(place)
+        .map((key) => buildTagLabel(key, lang))
+        .filter(Boolean);
+}
+
+function generateStory(place, lang = currentLang) {
+    const baseDesc = getLocalizedPlaceDescription(place, lang);
+    const tips = fillTipsWithFallback([], lang);
     if (baseDesc) {
         return {
-            hook: baseDesc.split(/\n|\.|\!/)[0].trim().slice(0, 120),
+            hook: baseDesc.split(/\n|\.|\!/)[0].trim().slice(0, 120) || String(place?.title || '').trim(),
             background: baseDesc.slice(0, 240),
-            tips: [
-                '방문 전 운영시간/휴무를 확인하세요.',
-                '혼잡 시간대를 피하면 여유롭게 즐길 수 있어요.',
-                '근처 동선(카페/산책/주차)을 함께 확인해보세요.'
-            ],
-            moments: ['#데이트', '#혼자여행', '#아이와함께']
+            tips,
+            moments: generateTags(place, lang).slice(0, 3)
         };
     }
 
     const title = String(place?.title ?? '').trim();
     const address = String(place?.address ?? '').trim();
-    const cat = normalizeCategory(place);
-    const type = String(place?.type ?? '').trim();
+    const categoryLabel = getCategoryTranslationByLang(normalizeCategory(place), lang);
+    const hookTemplate = getTranslationByLang(lang, 'storyFallbackHookTemplate', '{title}: a good anchor for today\'s route.');
+    const bodyWithAddress = getTranslationByLang(lang, 'storyFallbackBodyWithAddress', '{address} · {title} is in {categoryLabel}. Use it as a stop in your route.');
+    const bodyWithoutAddress = getTranslationByLang(lang, 'storyFallbackBodyNoAddress', '{title} is in {categoryLabel}. Use it as a stop in your route.');
+    const mapUnavailable = getTranslationByLang(lang, 'mapUnavailable', 'Map unavailable');
 
-    const hook = `${title}에서 오늘의 한 코스를 완성해보세요.`;
-    const background = `${address ? `${address}에 위치한 ` : ''}${title}는 ${cat !== 'all' ? cat : '추천 장소'}${type ? `(${type})` : ''}로, 현재 정보만으로도 동선에 넣기 좋은 포인트예요.`;
-    const tips = [
-        '지도 좌표가 없는 경우, 네이버 검색으로 위치를 확인해 주세요.',
-        '이동 동선이 길어질 수 있으니 같은 지역의 장소와 묶어보세요.',
-        '사진/메모를 남겨두면 다음 여행에서 재방문이 쉬워요.'
-    ];
-    return { hook, background, tips, moments: generateTags(place).slice(0, 3) };
+    const hook = hookTemplate.replaceAll('{title}', title || getTranslationByLang(lang, 'storyFallbackPlace', 'this place'));
+    const bodyTemplate = address ? bodyWithAddress : bodyWithoutAddress;
+    const background = bodyTemplate
+        .replaceAll('{address}', address || mapUnavailable)
+        .replaceAll('{title}', title || getTranslationByLang(lang, 'storyFallbackPlace', 'this place'))
+        .replaceAll('{categoryLabel}', categoryLabel || getTranslationByLang(lang, 'storyFallbackCategory', 'recommended place'));
+
+    return { hook, background, tips, moments: generateTags(place, lang).slice(0, 3) };
 }
 
 function normalizeCardContentLanguage(lang) {
@@ -601,8 +731,8 @@ function getCardContentCacheKey(placeKey, lang) {
 }
 
 function buildFallbackCardContent(place, lang = 'ko') {
-    const story = generateStory(place);
-    const tags = generateTags(place);
+    const story = generateStory(place, lang);
+    const tags = generateTags(place, lang);
     return {
         language: normalizeCardContentLanguage(lang),
         title: String(place?.title || '').trim(),
@@ -618,34 +748,42 @@ function buildFallbackCardContent(place, lang = 'ko') {
             String(tags?.[1] || '').trim(),
             String(tags?.[2] || '').trim()
         ],
-        categoryLabel: String(getCategoryTranslation(normalizeCategory(place)) || '').trim()
+        categoryLabel: String(getCategoryTranslationByLang(normalizeCategory(place), lang) || '').trim()
     };
 }
 
 function normalizeCardContentSchema(raw, targetLanguage, place) {
     if (!raw || typeof raw !== 'object') return null;
     const normalizedLanguage = normalizeCardContentLanguage(raw.language || targetLanguage);
+    const fallback = buildFallbackCardContent(place, targetLanguage);
+    const resolvedTitle = resolveLocalizedString(raw.title, targetLanguage, String(place?.title || '').trim());
+    const resolvedStoryTitle = resolveLocalizedString(raw.storyTitle || raw.hook, targetLanguage, fallback.storyTitle);
+    const resolvedStoryBody = resolveLocalizedString(raw.storyBody || raw.background, targetLanguage, fallback.storyBody);
+    const resolvedTips = fillTipsWithFallback(resolveLocalizedArray(raw.tips, targetLanguage, 3, fallback.tips), targetLanguage);
+    const resolvedTags = resolveLocalizedArray(raw.tags, targetLanguage, 3, fallback.tags).map((x) => normalizeTagText(x, targetLanguage));
+    const resolvedCategoryLabel = resolveLocalizedString(
+        raw.categoryLabel,
+        targetLanguage,
+        String(getCategoryTranslationByLang(normalizeCategory(place), targetLanguage) || '')
+    );
     const out = {
         language: normalizedLanguage,
-        title: String(raw.title || place?.title || '').trim(),
-        storyTitle: String(raw.storyTitle || raw.hook || '').trim(),
-        storyBody: String(raw.storyBody || raw.background || '').trim(),
-        tips: Array.isArray(raw.tips) ? raw.tips.slice(0, 3).map((x) => String(x || '').trim()) : [],
-        tags: Array.isArray(raw.tags) ? raw.tags.slice(0, 3).map((x) => String(x || '').trim()) : [],
-        categoryLabel: String(raw.categoryLabel || '').trim()
+        title: String(resolvedTitle || '').trim(),
+        storyTitle: String(resolvedStoryTitle || '').trim(),
+        storyBody: String(resolvedStoryBody || '').trim(),
+        tips: resolvedTips,
+        tags: resolvedTags,
+        categoryLabel: String(resolvedCategoryLabel || '').trim()
     };
 
     while (out.tips.length < 3) out.tips.push('');
     while (out.tags.length < 3) out.tags.push('');
-    if (!out.storyTitle || !out.storyBody) {
-        const fallback = buildFallbackCardContent(place, targetLanguage);
-        out.storyTitle = out.storyTitle || fallback.storyTitle;
-        out.storyBody = out.storyBody || fallback.storyBody;
-        out.tips = out.tips.every((x) => !x) ? fallback.tips : out.tips;
-        out.tags = out.tags.every((x) => !x) ? fallback.tags : out.tags;
-    }
+    out.storyTitle = out.storyTitle || fallback.storyTitle;
+    out.storyBody = out.storyBody || fallback.storyBody;
+    out.tips = out.tips.every((x) => !x) ? fallback.tips : fillTipsWithFallback(out.tips, targetLanguage);
+    out.tags = out.tags.every((x) => !x) ? fallback.tags : out.tags.map((x) => normalizeTagText(x, targetLanguage));
     if (!out.categoryLabel) {
-        out.categoryLabel = String(getCategoryTranslation(normalizeCategory(place)) || '').trim();
+        out.categoryLabel = String(getCategoryTranslationByLang(normalizeCategory(place), targetLanguage) || '').trim();
     }
     return out;
 }
@@ -667,7 +805,7 @@ async function getLocalizedCardContent(place, targetLanguage, options = {}) {
     }
 
     const promise = (async () => {
-        const fromPlace = place?.cardContent?.[lang] || place?.cardContent?.ko || null;
+        const fromPlace = findObjectValueByLanguage(place?.cardContent, lang) || null;
         if (fromPlace && !force) {
             const normalized = normalizeCardContentSchema(fromPlace, lang, place);
             cardContentCache.set(cacheKey, normalized);
@@ -1227,9 +1365,17 @@ function clearProvinceSummary() {
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     const initialLangSelect = document.getElementById('langSelect');
-    if (initialLangSelect && initialLangSelect.value) {
-        currentLang = normalizeLang(initialLangSelect.value);
+    let initialLang = initialLangSelect && initialLangSelect.value ? normalizeLang(initialLangSelect.value) : 'ko';
+    try {
+        const savedLang = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+        if (savedLang) initialLang = normalizeLang(savedLang);
+    } catch {
+        // ignore localStorage read failures
     }
+    if (initialLangSelect) {
+        initialLangSelect.value = initialLang;
+    }
+    currentLang = initialLang;
     updateLanguage();
     setupEventListeners();
     initMap();
@@ -2445,6 +2591,11 @@ function setupEventListeners() {
     // Language selector
     document.getElementById('langSelect').addEventListener('change', function(e) {
         currentLang = normalizeLang(e.target.value);
+        try {
+            localStorage.setItem(LANGUAGE_STORAGE_KEY, currentLang);
+        } catch {
+            // ignore localStorage write failures
+        }
         updateLanguage();
     });
     
@@ -2794,10 +2945,14 @@ async function showPlaceDetail(place, options = {}) {
         background: String(localized?.storyBody || '').trim(),
         tips: Array.isArray(localized?.tips) ? localized.tips : ['', '', '']
     };
-    const tags = Array.isArray(localized?.tags) ? localized.tags : generateTags(place);
+    const tags = Array.isArray(localized?.tags) && localized.tags.length
+        ? localized.tags.map((x) => normalizeTagText(x, currentLang)).filter(Boolean)
+        : generateTags(place, currentLang);
     const categoryLabel = String(localized?.categoryLabel || getCategoryTranslation(normalizeCategory(place)) || '').trim();
     const tagsHtml = tags.map((x) => `<span style="display:inline-flex;align-items:center;font-size:12px;font-weight:900;background:#f2f2f7;border-radius:999px;padding:6px 10px;color:#111827;">${escapeHtmlAttr(x)}</span>`).join(' ');
-    const noMapBadge = hasCoords(place) ? '' : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:900;background:#fef2f2;border-radius:999px;padding:6px 10px;color:#991b1b;">지도 표시 불가</span>`;
+    const noMapBadge = hasCoords(place)
+        ? ''
+        : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:900;background:#fef2f2;border-radius:999px;padding:6px 10px;color:#991b1b;">${escapeHtmlAttr(getCurrentTranslation('mapUnavailable', 'Map unavailable'))}</span>`;
     const placeKey = getPlaceKey(place);
     const feedbackDomId = buildPlaceFeedbackDomId(placeKey, 'detail');
     const storyLabel = translations[currentLang]?.storySectionLabel || 'Story';
@@ -2990,6 +3145,35 @@ const translations = {
         currencyCalculator: '환율 계산기',
         storySectionLabel: '스토리',
         top3TipsLabel: '팁 3개',
+        mapUnavailable: '지도 표시 불가',
+        noDescriptionAvailable: '설명 정보가 아직 없습니다.',
+        storyTipCheckHours: '방문 전 운영시간/휴무를 확인하세요.',
+        storyTipAvoidPeak: '혼잡 시간대를 피하면 더 여유롭게 즐길 수 있어요.',
+        storyTipCheckRoute: '근처 동선(카페/산책/주차)을 함께 확인해보세요.',
+        storyFallbackHookTemplate: '{title}에서 오늘의 한 코스를 완성해보세요.',
+        storyFallbackBodyWithAddress: '{address}에 위치한 {title}는 {categoryLabel}로, 현재 정보만으로도 동선에 넣기 좋은 포인트예요.',
+        storyFallbackBodyNoAddress: '{title}는 {categoryLabel}로, 현재 정보만으로도 동선에 넣기 좋은 포인트예요.',
+        storyFallbackPlace: '이 장소',
+        storyFallbackCategory: '추천 장소',
+        tag_cafe: '카페',
+        tag_dessert: '디저트',
+        tag_delicious: '맛집',
+        tag_meal: '식사',
+        tag_travel: '여행',
+        tag_photospot: '인생샷',
+        tag_walk: '산책',
+        tag_healing: '힐링',
+        tag_shopping: '쇼핑',
+        tag_souvenir: '기념품',
+        tag_local: '로컬',
+        tag_hotplace: '핫플',
+        tag_sea: '바다',
+        tag_nightview: '야경',
+        tag_traditionalmarket: '전통시장',
+        tag_date: '데이트',
+        tag_rainyday: '비오는날',
+        tag_withkids: '아이와함께',
+        tag_solotrip: '혼자여행',
         like: '좋아요',
         comments: '댓글',
         addComment: '댓글 남기기',
@@ -3128,6 +3312,35 @@ const translations = {
         currencyCalculator: 'Currency calculator',
         storySectionLabel: 'Story',
         top3TipsLabel: 'Top 3 Tips',
+        mapUnavailable: 'Map unavailable',
+        noDescriptionAvailable: 'No description available.',
+        storyTipCheckHours: 'Check opening hours before you visit.',
+        storyTipAvoidPeak: 'Avoid peak times for a more comfortable visit.',
+        storyTipCheckRoute: 'Check nearby route options (cafe/walk/parking).',
+        storyFallbackHookTemplate: 'Plan today\'s route around {title}.',
+        storyFallbackBodyWithAddress: '{title} is located at {address} in the {categoryLabel} category. It is a good stop for your route.',
+        storyFallbackBodyNoAddress: '{title} is in the {categoryLabel} category and is a good stop for your route.',
+        storyFallbackPlace: 'this place',
+        storyFallbackCategory: 'recommended place',
+        tag_cafe: 'cafe',
+        tag_dessert: 'dessert',
+        tag_delicious: 'goodfood',
+        tag_meal: 'meal',
+        tag_travel: 'travel',
+        tag_photospot: 'photospot',
+        tag_walk: 'walk',
+        tag_healing: 'healing',
+        tag_shopping: 'shopping',
+        tag_souvenir: 'souvenir',
+        tag_local: 'local',
+        tag_hotplace: 'hotplace',
+        tag_sea: 'sea',
+        tag_nightview: 'nightview',
+        tag_traditionalmarket: 'traditionalmarket',
+        tag_date: 'date',
+        tag_rainyday: 'rainyday',
+        tag_withkids: 'withkids',
+        tag_solotrip: 'solotrip',
         like: 'Like',
         comments: 'Comments',
         addComment: 'Post comment',
@@ -4003,7 +4216,7 @@ for (const dict of [cityNames, provinceNames]) {
 
 // Get category translation
 function getCategoryTranslation(category) {
-    return translations[currentLang]?.[category] || category;
+    return getCategoryTranslationByLang(category, currentLang);
 }
 
 function getCategoryClass(category) {
@@ -4206,6 +4419,10 @@ function flyToCity(city) {
 }
 
 function updateLanguage() {
+    window.currentLang = currentLang;
+    const htmlLangMap = { ko: 'ko', en: 'en', jp: 'ja', cn: 'zh-CN', th: 'th', ar: 'ar', ru: 'ru', fr: 'fr' };
+    document.documentElement.lang = htmlLangMap[currentLang] || 'ko';
+
     // Update main title and subtitle
     document.getElementById('main-title').textContent = translations[currentLang]?.title || 'K-Local Vibe';
     document.getElementById('sub-title').textContent = translations[currentLang]?.subtitle || '신사임당과 율곡 이이가 태어난 유서 깊은 곳입니다.';
@@ -4490,8 +4707,10 @@ function createRestaurantCard(place) {
     const normalizedCategory = normalizeCategory(place);
     const heritageBadge = isHeritagePlace(place) ? '🏛️' : '';
     const youtubeBadge = `🎥 ${hasYoutube(place) ? '✅' : '❌'}`;
-    const noMapBadge = hasCoords(place) ? '' : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:900;background:#f2f2f7;border-radius:999px;padding:4px 8px;color:#6b7280;">지도 표시 불가</span>`;
-    const tags = generateTags(place);
+    const noMapBadge = hasCoords(place)
+        ? ''
+        : `<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:900;background:#f2f2f7;border-radius:999px;padding:4px 8px;color:#6b7280;">${escapeHtmlAttr(getCurrentTranslation('mapUnavailable', 'Map unavailable'))}</span>`;
+    const tags = generateTags(place, currentLang);
     const tagsHtml = tags.map((x) => `<span style="display:inline-flex;align-items:center;font-size:11px;font-weight:900;background:#f2f2f7;border-radius:999px;padding:4px 8px;color:#111827;">${escapeHtmlAttr(x)}</span>`).join(' ');
     const q = String(searchQuery ?? '').trim();
     const titleHtml = q ? highlightMatch(place.title, q) : escapeHtmlAttr(place.title);
